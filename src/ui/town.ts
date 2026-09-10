@@ -169,7 +169,13 @@ function supplyShop(meta: MetaState, selected: string[]): string {
 }
 
 function graveyard(meta: MetaState): string {
-  if (meta.graveyard.length === 0) return ''
+  if (meta.graveyard.length === 0) {
+    return `
+      <section>
+        <h2>墓地</h2>
+        <p class="hint">還沒有人留在下面。</p>
+      </section>`
+  }
 
   const rows = meta.graveyard
     .slice()
@@ -243,13 +249,44 @@ function dangerZone(wiping: boolean): string {
     </section>`
 }
 
-export function renderTown(
-  meta: MetaState,
-  selected: string[],
-  summary: RunSummary | null,
-  muted: boolean,
-  wiping = false,
-): string {
+export type TownTab = 'party' | 'supply' | 'orphanage' | 'graves'
+
+/** 準備一趟探索是有順序的：先決定誰去，才決定帶多少 */
+function tabBar(tab: TownTab, meta: MetaState, selected: string[]): string {
+  const tabs: { id: TownTab; label: string; note: string }[] = [
+    { id: 'party', label: '① 隊伍', note: `${selected.length}/${PARTY_SIZE}` },
+    { id: 'supply', label: '② 補給', note: `${loadoutCost(meta.loadout)}` },
+    { id: 'orphanage', label: '孤兒院', note: `${meta.applicants.length}` },
+    { id: 'graves', label: '墓地', note: `${meta.graveyard.length}` },
+  ]
+
+  return `
+    <nav class="tabs">
+      ${tabs
+        .map(
+          (t) => `
+            <button class="tab ${t.id === tab ? 'tab--on' : ''}" data-tab="${t.id}" type="button">
+              ${t.label}<span class="tab__note">${esc(t.note)}</span>
+            </button>`,
+        )
+        .join('')}
+    </nav>`
+}
+
+export interface TownView {
+  meta: MetaState
+  selected: string[]
+  summary: RunSummary | null
+  muted: boolean
+  wiping?: boolean
+  tab?: TownTab
+}
+
+export function renderTown(view: TownView): string {
+  const { meta, selected, summary, muted } = view
+  const wiping = view.wiping ?? false
+  const tab = view.tab ?? 'party'
+
   const available = availableMembers(meta)
   const cost = loadoutCost(meta.loadout)
   const affordable = cost <= meta.funds
@@ -268,6 +305,45 @@ export function renderTown(
     )
     .filter((s): s is string => !!s)
 
+  const partyPage = `
+    ${summaryPanel(summary)}
+    <section>
+      <h2>名冊　選 ${selected.length} / ${PARTY_SIZE}</h2>
+      <div class="roster">${available.map((c) => memberCard(c, selected, meta)).join('')}</div>
+      ${pairs.length ? `<p class="roster__hint">一起活著回來過：${esc(pairs.join('、'))}</p>` : ''}
+      ${
+        available.length === 0
+          ? '<p class="hint">名冊上一個人也不剩了。到孤兒院看看。</p>'
+          : ''
+      }
+      <div class="actions">
+        <button class="action action--key" data-tab="supply" type="button" ${selected.length > 0 ? '' : 'disabled'}>
+          下一步・準備補給
+          ${selected.length > 0 ? '' : '<span class="action__why">還沒有決定誰要下去</span>'}
+        </button>
+      </div>
+      ${selected.length > 0 ? '' : '<p class="hint hint--depart">點名冊上的人把他們編進隊伍。最多四個人。</p>'}
+    </section>`
+
+  const supplyPage = `
+    ${supplyShop(meta, selected)}
+    <section>
+      <div class="actions">
+        <button class="action" data-tab="party" type="button">回到隊伍</button>
+        <button class="action action--key" data-depart="1" type="button" ${canDepart ? '' : 'disabled'}>
+          ${canDepart ? `出發下潛（${selected.length} 人・補給 ${cost}）` : '出發下潛'}
+          ${canDepart ? '' : `<span class="action__why">${departWhy}</span>`}
+        </button>
+      </div>
+    </section>`
+
+  const pages: Record<TownTab, string> = {
+    party: partyPage,
+    supply: supplyPage,
+    orphanage: orphanage(meta),
+    graves: `${graveyard(meta)}${dangerZone(wiping)}`,
+  }
+
   return `
     <div class="depth-bar">
       <div class="depth-bar__top">
@@ -277,39 +353,8 @@ export function renderTown(
           <button class="mute" data-mute="1" type="button" title="音效">${muted ? '🔇' : '🔊'}</button>
         </span>
       </div>
+      ${tabBar(tab, meta, selected)}
     </div>
 
-    <div class="layout">
-      <div class="col-left">
-        ${summaryPanel(summary)}
-        ${supplyShop(meta, selected)}
-        ${orphanage(meta)}
-        ${graveyard(meta)}
-        ${dangerZone(wiping)}
-      </div>
-
-      <div class="col-right">
-        <section>
-          <h2>名冊　選 ${selected.length} / ${PARTY_SIZE}</h2>
-          <div class="roster">${available.map((c) => memberCard(c, selected, meta)).join('')}</div>
-          ${
-            pairs.length
-              ? `<p class="roster__hint">一起活著回來過：${esc(pairs.join('、'))}</p>`
-              : ''
-          }
-          <div class="actions">
-            <button class="action action--key" data-depart="1" type="button" ${canDepart ? '' : 'disabled'}>
-              ${canDepart ? `出發下潛（${selected.length} 人・補給 ${cost}）` : '出發下潛'}
-              ${canDepart ? '' : `<span class="action__why">${departWhy}</span>`}
-            </button>
-          </div>
-          ${canDepart ? '' : '<p class="hint hint--depart">點名冊上的人把他們編進隊伍。最多四個人。</p>'}
-          ${
-            available.length === 0
-              ? '<p class="hint">名冊上一個人也不剩了。孤兒院還會再送人來。</p>'
-              : ''
-          }
-        </section>
-      </div>
-    </div>`
+    <div class="town-page">${pages[tab]}</div>`
 }

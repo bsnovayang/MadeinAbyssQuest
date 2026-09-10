@@ -28,7 +28,7 @@ import {
 import type { RunState, SupplyKey } from '../core/types'
 import { render, type HpDeltas } from './render'
 import type { SaveData } from './storage'
-import { renderTown } from './town'
+import { renderTown, type TownTab } from './town'
 
 /** 音效與存檔都從外面注入，讓整個 UI 層可以在 jsdom 裡被真的點擊 */
 export interface AudioPort {
@@ -68,6 +68,7 @@ export interface App {
   handleClick(ev: Event): void
   snapshot(): {
     view: 'town' | 'run'
+    tab: TownTab
     meta: MetaState
     run: RunState | null
     selected: string[]
@@ -122,6 +123,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
   let run: RunState | null = null
   let summary: RunSummary | null = null
   let selected: string[] = []
+  let tab: TownTab = 'party'
   let wiping = false
   let busy = false
   let campTimer: ReturnType<typeof setTimeout> | undefined
@@ -145,7 +147,14 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       root.classList.toggle('mood--ascent', run.direction === 'up' && !run.over)
       root.classList.toggle('mood--warm', run.endReason === 'surfaced')
     } else {
-      root.innerHTML = renderTown(meta, selected, summary, audio.isMuted(), wiping)
+      root.innerHTML = renderTown({
+        meta,
+        selected,
+        summary,
+        muted: audio.isMuted(),
+        wiping,
+        tab,
+      })
       root.classList.remove('mood--ascent')
       root.classList.toggle('mood--warm', summary?.surfaced ?? false)
     }
@@ -238,6 +247,8 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     selected = selected.filter((id) =>
       meta.roster.some((c) => c.id === id && c.status === 'alive'),
     )
+    // 回城後從第一步開始，結算報告就在那一頁
+    tab = 'party'
     audio.reset()
     paint()
     syncAudio()
@@ -260,6 +271,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     run = null
     summary = null
     selected = []
+    tab = 'party'
     wiping = false
     audio.reset()
     paint()
@@ -293,6 +305,13 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
 
     if (d.mute) {
       audio.toggleMute()
+      paint()
+      return
+    }
+
+    if (d.tab) {
+      tab = d.tab as TownTab
+      wiping = false
       paint()
       return
     }
@@ -395,6 +414,6 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
   return {
     start,
     handleClick,
-    snapshot: () => ({ view: run ? 'run' : 'town', meta, run, selected }),
+    snapshot: () => ({ view: run ? 'run' : 'town', tab, meta, run, selected }),
   }
 }

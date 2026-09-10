@@ -829,6 +829,56 @@ h2 {
   white-space: nowrap;
 }
 
+/* ── 分頁 ────────────────────────────────────────────── */
+
+.tabs {
+  display: flex;
+  gap: 0.3rem;
+  margin: 0.6rem -0.2rem -0.6rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  font-family: inherit;
+  font-size: 0.86rem;
+  color: var(--ink-faint);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 0.35rem 0.5rem 0.4rem;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--ink-soft);
+}
+
+.tab--on {
+  color: var(--ink);
+  font-weight: 700;
+  border-bottom-color: var(--ink);
+}
+
+.tab__note {
+  margin-left: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.town-page {
+  max-width: 46rem;
+  margin: 0 auto;
+}
+
 /* ── 特質 ────────────────────────────────────────────── */
 
 .roster__traits {

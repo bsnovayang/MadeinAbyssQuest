@@ -15,6 +15,17 @@ function exists(selector: string): boolean {
   return !!root.querySelector(selector)
 }
 
+/** 走真實的動線：先選人，再到補給頁出發 */
+function goto(tab: string): void {
+  click(`.tab[data-tab="${tab}"]`)
+}
+
+function departWith(...ids: string[]): void {
+  for (const id of ids) click(`[data-pick="${id}"]`)
+  goto('supply')
+  click('[data-depart]')
+}
+
 beforeEach(async () => {
   root = document.createElement('div')
   document.body.replaceChildren(root)
@@ -23,10 +34,13 @@ beforeEach(async () => {
 })
 
 describe('奧斯城', () => {
-  it('一開始顯示名冊，而不是探索畫面', () => {
+  it('一開始停在第一步的名冊，而不是探索畫面', () => {
     expect(app.snapshot().view).toBe('town')
+    expect(app.snapshot().tab).toBe('party')
     expect(exists('[data-pick]')).toBe(true)
-    expect(exists('[data-depart]')).toBe(true)
+    expect(exists('.tab--on[data-tab="party"]')).toBe(true)
+    // 出發在第二步，不在這一頁
+    expect(exists('[data-depart]')).toBe(false)
   })
 
   it('點選隊員會被記錄下來', () => {
@@ -48,32 +62,43 @@ describe('奧斯城', () => {
     expect(app.snapshot().selected).toEqual(['riko'])
   })
 
-  it('沒選人時「出發下潛」是停用的，而且說得出原因', () => {
-    const depart = root.querySelector('[data-depart]')!
-    expect(depart.hasAttribute('disabled')).toBe(true)
-    expect(depart.querySelector('.action__why')?.textContent).toContain('還沒有決定誰要下去')
+  it('沒選人時走不到下一步，而且說得出原因', () => {
+    const next = root.querySelector('[data-tab="supply"].action')!
+    expect(next.hasAttribute('disabled')).toBe(true)
+    expect(next.querySelector('.action__why')?.textContent).toContain('還沒有決定誰要下去')
     expect(root.querySelector('.hint--depart')?.textContent).toContain('點名冊上的人')
-
-    click('[data-depart]')
-    expect(app.snapshot().view).toBe('town')
   })
 
-  it('選了人之後提示消失，按鈕顯示人數', () => {
+  it('選了人之後才走得到補給頁，按鈕顯示人數', () => {
     click('[data-pick="riko"]')
-    const depart = root.querySelector('[data-depart]')!
-    expect(depart.hasAttribute('disabled')).toBe(false)
-    expect(depart.textContent).toContain('1 人')
+    expect(root.querySelector('[data-tab="supply"].action')?.hasAttribute('disabled')).toBe(
+      false,
+    )
     expect(root.querySelector('.hint--depart')).toBeNull()
+
+    goto('supply')
+    expect(app.snapshot().tab).toBe('supply')
+    expect(root.querySelector('[data-depart]')?.textContent).toContain('1 人')
   })
 
-  it('★選好人之後按「出發下潛」會真的出發', () => {
-    click('[data-pick="riko"]')
-    click('[data-pick="reg"]')
-    click('[data-depart]')
+  it('★選好人、備好補給之後會真的出發', () => {
+    departWith('riko', 'reg')
 
     expect(app.snapshot().view).toBe('run')
     expect(app.snapshot().run?.party).toHaveLength(2)
     expect(exists('[data-node]')).toBe(true)
+  })
+
+  it('分頁可以自由切換，回城時回到第一步', () => {
+    goto('graves')
+    expect(app.snapshot().tab).toBe('graves')
+    expect(root.textContent).toContain('墓地')
+
+    goto('orphanage')
+    expect(exists('[data-hire]')).toBe(true)
+
+    goto('party')
+    expect(exists('[data-pick]')).toBe(true)
   })
 
   it('最多只能帶 4 個人', () => {
@@ -84,9 +109,7 @@ describe('奧斯城', () => {
 
 describe('探索', () => {
   beforeEach(() => {
-    click('[data-pick="riko"]')
-    click('[data-pick="reg"]')
-    click('[data-depart]')
+    departWith('riko', 'reg')
   })
 
   it('點一個節點會往下推進', async () => {
@@ -118,6 +141,11 @@ describe('探索', () => {
 })
 
 describe('補給商', () => {
+  beforeEach(() => {
+    click('[data-pick="riko"]')
+    goto('supply')
+  })
+
   it('加減會改變數量、花費與重量', () => {
     const before = app.snapshot().meta.loadout.food
     click('[data-buy="food:1"]')
@@ -145,7 +173,6 @@ describe('補給商', () => {
   it('出發時才付補給的錢', () => {
     const meta = app.snapshot().meta
     const funds = meta.funds
-    click('[data-pick="riko"]')
     click('[data-depart]')
 
     expect(app.snapshot().meta.funds).toBeLessThan(funds)
@@ -155,7 +182,7 @@ describe('補給商', () => {
   it('沒錢買補給時說得出原因', () => {
     const meta = app.snapshot().meta
     meta.funds = 0
-    click('[data-pick="riko"]')
+    goto('supply')
 
     const depart = root.querySelector('[data-depart]')!
     expect(depart.hasAttribute('disabled')).toBe(true)
@@ -165,15 +192,13 @@ describe('補給商', () => {
 
 describe('資訊揭露', () => {
   it('帶著測繪士才看得出前方是什麼', () => {
-    click('[data-pick="urna"]') // 烏爾娜有測繪
-    click('[data-depart]')
+    departWith('urna') // 烏爾娜有測繪
     expect(root.querySelector('.choice__kind')?.textContent?.trim()).not.toBe('？')
     expect(exists('.choice__kind--unknown')).toBe(false)
   })
 
   it('沒有測繪士就只剩筆記上的描述', () => {
-    click('[data-pick="tobi"]') // 托比只是學徒
-    click('[data-depart]')
+    departWith('tobi') // 托比只是學徒
     expect(exists('.choice__kind--unknown')).toBe(true)
     expect(root.querySelector('.choice__kind')?.textContent?.trim()).toBe('？')
     // 描述本身仍然看得見，那才是判斷的依據
@@ -182,6 +207,8 @@ describe('資訊揭露', () => {
 })
 
 describe('孤兒院', () => {
+  beforeEach(() => goto('orphanage'))
+
   it('先看見人是誰，才決定要不要帶走', () => {
     const cards = root.querySelectorAll('.applicant')
     expect(cards).toHaveLength(3)
@@ -194,8 +221,7 @@ describe('孤兒院', () => {
 
   it('沒錢時不會招募，也會說明原因', () => {
     app.snapshot().meta.funds = 0
-    click('[data-pick="riko"]')
-    click('[data-pick="riko"]') // 觸發重繪
+    goto('orphanage')
     const before = app.snapshot().meta.roster.length
 
     const btn = root.querySelector('[data-hire]')!
@@ -209,8 +235,7 @@ describe('孤兒院', () => {
   it('有錢時帶走的是你點的那一個，名額由新的人補上', () => {
     const meta = app.snapshot().meta
     meta.funds = 99999
-    click('[data-pick="riko"]')
-    click('[data-pick="riko"]') // 只為了觸發重繪
+    goto('orphanage')
 
     const target = root.querySelector('.applicant')!
     const name = target.querySelector('.roster__name')!.textContent!.trim()
@@ -226,11 +251,13 @@ describe('孤兒院', () => {
 })
 
 describe('清除紀錄', () => {
+  beforeEach(() => goto('graves'))
+
   it('要按兩次才會真的清除', () => {
     const meta = app.snapshot().meta
     meta.funds = 500
     meta.graveyard.push({ name: '托比', depth: 4000, cause: 'dead', buried: false, runIndex: 1 })
-    click('[data-pick="riko"]')
+    goto('graves')
 
     click('[data-wipe]')
     expect(exists('[data-wipe-confirm]')).toBe(true)
@@ -268,6 +295,7 @@ describe('清除紀錄', () => {
         .querySelector<HTMLElement>(sel)!
         .dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
 
+    hit('.tab[data-tab="graves"]')
     hit('[data-wipe]')
     hit('[data-wipe-confirm]')
     expect(cleared).toBe(1)
@@ -292,8 +320,7 @@ describe('停用的按鈕都要說得出原因', () => {
   })
 
   it('探索途中', () => {
-    click('[data-pick="riko"]')
-    click('[data-depart]')
+    departWith('riko')
     expect(root.querySelectorAll('button.action[disabled]').length).toBeGreaterThan(0)
     assertAllExplained()
   })
@@ -343,10 +370,13 @@ describe('韌性', () => {
     })
     await a2.start()
 
-    r2.querySelector<HTMLElement>('[data-pick="riko"]')!
-      .dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
-    r2.querySelector<HTMLElement>('[data-depart]')!
-      .dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+    const hit = (sel: string) =>
+      r2
+        .querySelector<HTMLElement>(sel)!
+        .dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+    hit('[data-pick="riko"]')
+    hit('.tab[data-tab="supply"]')
+    hit('[data-depart]')
 
     expect(a2.snapshot().view).toBe('run')
   })
@@ -360,10 +390,13 @@ describe('存檔', () => {
     const a2 = createApp(r2, { pace: 0, seed: () => 's', save: (d) => writes.push(d) })
     await a2.start()
 
-    r2.querySelector<HTMLElement>('[data-pick="riko"]')!
-      .dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
-    r2.querySelector<HTMLElement>('[data-depart]')!
-      .dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+    const hit = (sel: string) =>
+      r2
+        .querySelector<HTMLElement>(sel)!
+        .dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+    hit('[data-pick="riko"]')
+    hit('.tab[data-tab="supply"]')
+    hit('[data-depart]')
 
     expect(writes.length).toBeGreaterThan(0)
   })
