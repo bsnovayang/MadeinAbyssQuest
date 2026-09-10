@@ -8,9 +8,9 @@ import {
   concludeRun,
   createMeta,
   deployParty,
+  hire,
+  hireCost,
   PARTY_SIZE,
-  RECRUIT_COST,
-  recruit,
   replenish,
 } from '../meta'
 import {
@@ -98,9 +98,11 @@ function campaign(runs: number, turnAt: number) {
 
   for (let i = 0; i < runs; i++) {
     replenish(meta)
-    while (availableMembers(meta).length < PARTY_SIZE && meta.funds >= RECRUIT_COST) {
-      meta.funds -= RECRUIT_COST
-      recruit(meta)
+    while (availableMembers(meta).length < PARTY_SIZE) {
+      const affordable = meta.applicants
+        .filter((c) => hireCost(c) <= meta.funds)
+        .sort((a, b) => hireCost(b) - hireCost(a))[0]
+      if (!affordable || !hire(meta, affordable.id)) break
     }
 
     const ids = availableMembers(meta)

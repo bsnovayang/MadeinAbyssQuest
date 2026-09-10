@@ -9,6 +9,8 @@ export interface MetaState {
   roster: Character[]
   graveyard: MemorialEntry[]
   lostSouls: LostSoul[]
+  /** 孤兒院目前有的孩子。招募是選擇，不是抽獎 */
+  applicants: Character[]
   funds: number
   runIndex: number
   rngState: number
@@ -17,14 +19,30 @@ export interface MetaState {
 export const PARTY_SIZE = 4
 
 export function createMeta(rngState = 20260910): MetaState {
-  return {
+  const meta: MetaState = {
     roster: startingParty(),
     graveyard: [],
     lostSouls: [],
+    applicants: [],
     funds: 0,
     runIndex: 0,
     rngState,
   }
+  refreshApplicants(meta)
+  return meta
+}
+
+/** 舊存檔缺少後來才加上的欄位，讀取時補齊 */
+export function normalizeMeta(meta: MetaState): MetaState {
+  meta.applicants ??= []
+  meta.lostSouls ??= []
+  meta.graveyard ??= []
+  for (const c of [...meta.roster, ...meta.applicants]) {
+    c.afflictions ??= []
+    c.bonds ??= {}
+  }
+  refreshApplicants(meta)
+  return meta
 }
 
 export function availableMembers(meta: MetaState): Character[] {
@@ -208,10 +226,41 @@ function rollAffliction(meta: MetaState, member: Character, run: RunState): stri
 
 // ─── 招募 ────────────────────────────────────────────────────
 
-export const RECRUIT_COST = 150
+/** 孤兒院同時會有幾個孩子等著 */
+export const APPLICANT_SLOTS = 3
 
 /** 低於這個人數，孤兒院會免費補人 */
 export const ROSTER_FLOOR = 3
+
+/**
+ * 招募費用由能力決定，所以「錢」變成一個真的選擇：
+ * 便宜但撐不住的孩子，還是貴但可靠的人。
+ */
+export function hireCost(c: Character): number {
+  return 100 + (c.maxHp + c.maxTolerance + c.carryCapacity) * 5
+}
+
+export function refreshApplicants(meta: MetaState): void {
+  while (meta.applicants.length < APPLICANT_SLOTS) {
+    meta.applicants.push(makeRecruit(meta))
+  }
+}
+
+/** 付錢帶走指定的孩子。名額會由新的人補上 */
+export function hire(meta: MetaState, applicantId: string): Character | null {
+  const idx = meta.applicants.findIndex((c) => c.id === applicantId)
+  const candidate = meta.applicants[idx]
+  if (!candidate) return null
+
+  const cost = hireCost(candidate)
+  if (meta.funds < cost) return null
+
+  meta.funds -= cost
+  meta.applicants.splice(idx, 1)
+  meta.roster.push(candidate)
+  refreshApplicants(meta)
+  return candidate
+}
 
 /**
  * 破產保底（企劃書 11-7）。
@@ -231,9 +280,15 @@ export function replenish(meta: MetaState): Character[] {
   return added
 }
 
-/** 孤兒院永遠會給你新的孩子（企劃書 11-7） */
+/** 孤兒院永遠會給你新的孩子（企劃書 11-7）。免費補人用，不經過孤兒院名額 */
 export function recruit(meta: MetaState): Character | null {
-  const used = new Set(meta.roster.map((c) => c.name))
+  const member = makeRecruit(meta)
+  meta.roster.push(member)
+  return member
+}
+
+function makeRecruit(meta: MetaState): Character {
+  const used = new Set([...meta.roster, ...meta.applicants].map((c) => c.name))
   const pool = RECRUIT_NAMES.filter((n) => !used.has(n))
   const [name, s1] = pool.length
     ? pick(meta.rngState, pool)
@@ -245,8 +300,8 @@ export function recruit(meta: MetaState): Character | null {
   const [cap, s4] = nextInt(s3, 12, 22)
   meta.rngState = s4
 
-  const member: Character = {
-    id: `r${meta.runIndex}-${meta.roster.length}-${Math.round(meta.rngState % 9973)}`,
+  return {
+    id: `r${meta.runIndex}-${meta.roster.length}-${meta.applicants.length}-${Math.round(meta.rngState % 99991)}`,
     name,
     hp,
     maxHp: hp,
@@ -258,7 +313,4 @@ export function recruit(meta: MetaState): Character | null {
     afflictions: [],
     bonds: {},
   }
-
-  meta.roster.push(member)
-  return member
 }

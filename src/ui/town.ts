@@ -4,8 +4,8 @@ import {
   availableMembers,
   bondBetween,
   bondBonus,
+  hireCost,
   PARTY_SIZE,
-  RECRUIT_COST,
   type MetaState,
   type RunSummary,
 } from '../core/meta'
@@ -115,15 +115,65 @@ function graveyard(meta: MetaState): string {
     </section>`
 }
 
+/**
+ * 孤兒院展示的是人，不是抽獎。
+ * 你要帶下去可能會死的孩子，至少該先看見他是誰。
+ */
+function orphanage(meta: MetaState): string {
+  const cards = meta.applicants
+    .map((c) => {
+      const cost = hireCost(c)
+      const afford = meta.funds >= cost
+      return `
+        <div class="applicant">
+          <div class="applicant__row">
+            <span class="roster__name">${esc(c.name)}</span>
+            <span class="applicant__cost ${afford ? '' : 'applicant__cost--no'}">${cost}</span>
+          </div>
+          <span class="roster__stats">HP ${c.maxHp}　耐受 ${c.maxTolerance}　負重 ${c.carryCapacity}</span>
+          <button class="action" data-hire="${esc(c.id)}" type="button" ${afford ? '' : 'disabled'}>
+            帶他走
+            ${afford ? '' : '<span class="action__why">資金不足</span>'}
+          </button>
+        </div>`
+    })
+    .join('')
+
+  return `
+    <section>
+      <h2>孤兒院</h2>
+      <p class="hint">費用依能力而定。他們都還沒有下去過。</p>
+      <div class="applicants">${cards}</div>
+    </section>`
+}
+
+function dangerZone(wiping: boolean): string {
+  if (!wiping) {
+    return `
+      <section class="danger">
+        <button class="wipe" data-wipe="1" type="button">清除所有紀錄</button>
+      </section>`
+  }
+
+  return `
+    <section class="danger danger--armed">
+      <p class="hint">真的要清除嗎？名冊、羈絆、資金，還有墓地上的每一個名字，都會一起消失。</p>
+      <div class="actions">
+        <button class="action" data-wipe-confirm="1" type="button">確定清除</button>
+        <button class="action action--key" data-wipe-cancel="1" type="button">取消</button>
+      </div>
+    </section>`
+}
+
 export function renderTown(
   meta: MetaState,
   selected: string[],
   summary: RunSummary | null,
   muted: boolean,
+  wiping = false,
 ): string {
   const available = availableMembers(meta)
   const canDepart = selected.length > 0 && selected.length <= PARTY_SIZE
-  const canRecruit = meta.funds >= RECRUIT_COST
 
   const pairs = selected
     .flatMap((a, i) =>
@@ -151,7 +201,9 @@ export function renderTown(
     <div class="layout">
       <div class="col-left">
         ${summaryPanel(summary)}
+        ${orphanage(meta)}
         ${graveyard(meta)}
+        ${dangerZone(wiping)}
       </div>
 
       <div class="col-right">
@@ -168,15 +220,11 @@ export function renderTown(
               ${canDepart ? `出發下潛（${selected.length} 人）` : '出發下潛'}
               ${canDepart ? '' : '<span class="action__why">還沒有決定誰要下去</span>'}
             </button>
-            <button class="action" data-recruit="1" type="button" ${canRecruit ? '' : 'disabled'}>
-              從孤兒院招募（${RECRUIT_COST}）
-              ${canRecruit ? '' : '<span class="action__why">資金不足</span>'}
-            </button>
           </div>
-          ${canDepart ? '' : '<p class="hint">點名冊上的人把他們編進隊伍。最多四個人。</p>'}
+          ${canDepart ? '' : '<p class="hint hint--depart">點名冊上的人把他們編進隊伍。最多四個人。</p>'}
           ${
             available.length === 0
-              ? '<p class="report__line">名冊上一個人也不剩了。孤兒院還會再送人來。</p>'
+              ? '<p class="hint">名冊上一個人也不剩了。孤兒院還會再送人來。</p>'
               : ''
           }
         </section>

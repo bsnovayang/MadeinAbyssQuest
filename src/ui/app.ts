@@ -3,9 +3,9 @@ import {
   concludeRun,
   createMeta,
   deployParty,
+  hire,
+  normalizeMeta,
   PARTY_SIZE,
-  RECRUIT_COST,
-  recruit,
   replenish,
   type MetaState,
   type RunSummary,
@@ -55,6 +55,7 @@ export interface AppDeps {
   audio?: AudioPort
   save?: (data: SaveData) => void
   load?: () => Promise<SaveData | null>
+  clear?: () => void
   seed?: () => string
   /** 回饋停頓的倍率。測試傳 0 就不必等 */
   pace?: number
@@ -119,6 +120,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
   let run: RunState | null = null
   let summary: RunSummary | null = null
   let selected: string[] = []
+  let wiping = false
   let busy = false
   let campTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -141,7 +143,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       root.classList.toggle('mood--ascent', run.direction === 'up' && !run.over)
       root.classList.toggle('mood--warm', run.endReason === 'surfaced')
     } else {
-      root.innerHTML = renderTown(meta, selected, summary, audio.isMuted())
+      root.innerHTML = renderTown(meta, selected, summary, audio.isMuted(), wiping)
       root.classList.remove('mood--ascent')
       root.classList.toggle('mood--warm', summary?.surfaced ?? false)
     }
@@ -237,6 +239,22 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     paint()
   }
 
+  function wipe(): void {
+    try {
+      deps.clear?.()
+    } catch {
+      /* 清不掉舊檔也要能重來 */
+    }
+    meta = createMeta()
+    run = null
+    summary = null
+    selected = []
+    wiping = false
+    audio.reset()
+    paint()
+    persist()
+  }
+
   function cure(payload: string): void {
     const [memberId, afflictionId] = payload.split(':')
     const member = meta.roster.find((c) => c.id === memberId)
@@ -272,14 +290,26 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     if (d.depart) return depart()
     if (d.cure) return cure(d.cure)
     if (d.return) return returnToTown()
-    if (d.recruit) {
-      if (meta.funds < RECRUIT_COST) return
-      meta.funds -= RECRUIT_COST
-      recruit(meta)
+
+    if (d.hire) {
+      if (!hire(meta, d.hire)) return
       paint()
       persist()
       return
     }
+
+    // 清除是不可逆的，因此拆成兩步，而不是彈一個對話框
+    if (d.wipe) {
+      wiping = true
+      paint()
+      return
+    }
+    if (d.wipeCancel) {
+      wiping = false
+      paint()
+      return
+    }
+    if (d.wipeConfirm) return wipe()
 
     const current = run
     if (!current) return
@@ -334,7 +364,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
   async function start(): Promise<void> {
     const saved = await deps.load?.()
     if (saved) {
-      meta = saved.meta
+      meta = normalizeMeta(saved.meta)
       run = saved.run
     }
     if (!run) replenish(meta)

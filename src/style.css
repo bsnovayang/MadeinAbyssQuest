@@ -824,6 +824,71 @@ h2 {
   white-space: nowrap;
 }
 
+.applicants {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.applicant {
+  border: 1px dashed var(--paper-edge);
+  border-radius: 3px;
+  padding: 0.45rem 0.6rem;
+}
+
+.applicant__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.applicant__cost {
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.applicant__cost--no {
+  color: var(--ink-faint);
+}
+
+.applicant .action {
+  margin-top: 0.35rem;
+  width: 100%;
+}
+
+/* 清除紀錄不該顯眼，但也不該藏起來 */
+.danger {
+  margin-top: 2rem;
+  padding-top: 0.8rem;
+  border-top: 1px dashed var(--paper-edge);
+}
+
+.wipe {
+  font-family: inherit;
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.wipe:hover {
+  color: #a33d2a;
+}
+
+.danger--armed {
+  border-top-color: #a33d2a;
+}
+
+.danger--armed .hint {
+  border-left-color: #a33d2a;
+  color: var(--ink);
+}
+
 .carried--corpse {
   background: rgba(138, 129, 119, 0.14);
 }

@@ -52,7 +52,7 @@ describe('奧斯城', () => {
     const depart = root.querySelector('[data-depart]')!
     expect(depart.hasAttribute('disabled')).toBe(true)
     expect(depart.querySelector('.action__why')?.textContent).toContain('還沒有決定誰要下去')
-    expect(root.querySelector('.hint')?.textContent).toContain('點名冊上的人')
+    expect(root.querySelector('.hint--depart')?.textContent).toContain('點名冊上的人')
 
     click('[data-depart]')
     expect(app.snapshot().view).toBe('town')
@@ -63,7 +63,7 @@ describe('奧斯城', () => {
     const depart = root.querySelector('[data-depart]')!
     expect(depart.hasAttribute('disabled')).toBe(false)
     expect(depart.textContent).toContain('1 人')
-    expect(root.querySelector('.hint')).toBeNull()
+    expect(root.querySelector('.hint--depart')).toBeNull()
   })
 
   it('★選好人之後按「出發下潛」會真的出發', () => {
@@ -114,6 +114,98 @@ describe('探索', () => {
     // 直接重繪出結束畫面再按鈕
     click('[data-node],[data-ascent]')
     await Promise.resolve()
+  })
+})
+
+describe('孤兒院', () => {
+  it('先看見人是誰，才決定要不要帶走', () => {
+    const cards = root.querySelectorAll('.applicant')
+    expect(cards).toHaveLength(3)
+    for (const card of cards) {
+      expect(card.querySelector('.roster__name')?.textContent?.trim()).toBeTruthy()
+      expect(card.querySelector('.roster__stats')?.textContent).toContain('耐受')
+      expect(card.querySelector('.applicant__cost')?.textContent?.trim()).toBeTruthy()
+    }
+  })
+
+  it('沒錢時不會招募，也會說明原因', () => {
+    expect(app.snapshot().meta.funds).toBe(0)
+    const before = app.snapshot().meta.roster.length
+
+    const btn = root.querySelector('[data-hire]')!
+    expect(btn.hasAttribute('disabled')).toBe(true)
+    expect(btn.querySelector('.action__why')?.textContent).toContain('資金不足')
+
+    click('[data-hire]')
+    expect(app.snapshot().meta.roster).toHaveLength(before)
+  })
+
+  it('有錢時帶走的是你點的那一個，名額由新的人補上', () => {
+    const meta = app.snapshot().meta
+    meta.funds = 99999
+    click('[data-pick="riko"]')
+    click('[data-pick="riko"]') // 只為了觸發重繪
+
+    const target = root.querySelector('.applicant')!
+    const name = target.querySelector('.roster__name')!.textContent!.trim()
+    const id = target.querySelector('[data-hire]')!.getAttribute('data-hire')!
+
+    click(`[data-hire="${id}"]`)
+
+    expect(app.snapshot().meta.roster.some((c) => c.name === name)).toBe(true)
+    expect(app.snapshot().meta.applicants).toHaveLength(3)
+    expect(app.snapshot().meta.applicants.some((c) => c.id === id)).toBe(false)
+    expect(app.snapshot().meta.funds).toBeLessThan(99999)
+  })
+})
+
+describe('清除紀錄', () => {
+  it('要按兩次才會真的清除', () => {
+    const meta = app.snapshot().meta
+    meta.funds = 500
+    meta.graveyard.push({ name: '托比', depth: 4000, cause: 'dead', buried: false, runIndex: 1 })
+    click('[data-pick="riko"]')
+
+    click('[data-wipe]')
+    expect(exists('[data-wipe-confirm]')).toBe(true)
+    // 這一步還沒有動到任何東西
+    expect(app.snapshot().meta.funds).toBe(500)
+    expect(app.snapshot().meta.graveyard).toHaveLength(1)
+
+    click('[data-wipe-confirm]')
+    expect(app.snapshot().meta.funds).toBe(0)
+    expect(app.snapshot().meta.graveyard).toHaveLength(0)
+    expect(app.snapshot().selected).toEqual([])
+    expect(app.snapshot().view).toBe('town')
+  })
+
+  it('可以反悔', () => {
+    const meta = app.snapshot().meta
+    meta.funds = 500
+
+    click('[data-wipe]')
+    click('[data-wipe-cancel]')
+
+    expect(exists('[data-wipe-confirm]')).toBe(false)
+    expect(exists('[data-wipe]')).toBe(true)
+    expect(app.snapshot().meta.funds).toBe(500)
+  })
+
+  it('清除會通知外部的存檔層', async () => {
+    let cleared = 0
+    const r2 = document.createElement('div')
+    document.body.appendChild(r2)
+    const a2 = createApp(r2, { pace: 0, seed: () => 's', clear: () => cleared++ })
+    await a2.start()
+
+    const hit = (sel: string) =>
+      r2
+        .querySelector<HTMLElement>(sel)!
+        .dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+
+    hit('[data-wipe]')
+    hit('[data-wipe-confirm]')
+    expect(cleared).toBe(1)
   })
 })
 
