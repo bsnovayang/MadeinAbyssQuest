@@ -681,6 +681,140 @@ h2 {
   letter-spacing: 0.1em;
 }
 
+/* ══ 奧斯城 ════════════════════════════════════════════════ */
+
+.roster {
+  display: grid;
+  gap: 0.6rem;
+}
+
+@media (min-width: 620px) {
+  .roster {
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  }
+}
+
+.roster__card {
+  border: 1.5px solid var(--paper-edge);
+  border-radius: 3px;
+  padding: 0.2rem 0.2rem 0.4rem;
+}
+
+.roster__card--on {
+  border-color: var(--ink);
+  background: rgba(122, 139, 63, 0.1);
+}
+
+.roster__pick {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--ink);
+  padding: 0.45rem 0.6rem;
+}
+
+.roster__name {
+  display: block;
+  font-weight: 700;
+  font-size: 1.02rem;
+}
+
+.roster__stats {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.bonus {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.roster__afflictions {
+  display: block;
+  font-size: 0.8rem;
+  color: #a33d2a;
+}
+
+.roster__bonds {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+  margin-top: 0.15rem;
+}
+
+.bond {
+  display: inline-block;
+  margin-right: 0.45rem;
+}
+
+.bond--gone {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  color: var(--grim);
+}
+
+.roster__hint {
+  font-size: 0.83rem;
+  color: var(--ink-soft);
+  margin: 0.6rem 0 0;
+}
+
+.report {
+  border-left: 3px solid var(--ink-faint);
+  padding-left: 0.8rem;
+}
+
+.report--warm {
+  border-left-color: var(--warm);
+}
+
+.report__line {
+  margin: 0.25rem 0;
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+}
+
+.graves {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* 墓地是純敘事的，但玩家會反覆回來看（企劃書 5 章 NPC 表） */
+.grave {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.2rem 0;
+  border-bottom: 1px dotted var(--paper-edge);
+  font-size: 0.88rem;
+}
+
+.grave__name {
+  color: var(--grim);
+  letter-spacing: 0.08em;
+}
+
+.grave__where {
+  color: var(--ink-faint);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.carried--corpse {
+  background: rgba(138, 129, 119, 0.14);
+}
+
+.carried--corpse > span:first-child {
+  letter-spacing: 0.08em;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .mood--camp::before,
   .mood--warm::before {

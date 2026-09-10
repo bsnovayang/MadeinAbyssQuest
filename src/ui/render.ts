@@ -193,15 +193,19 @@ function supplies(state: RunState): string {
   const items = state.carried
     .map((i) => {
       const def = i.relicId ? relicById(i.relicId) : undefined
+      const corpse = i.kind === 'corpse'
       return `
-        <li>
+        <li class="${corpse ? 'carried--corpse' : ''}">
           <span>
             ${esc(i.name)}
             ${def ? `<span class="carried__note">${esc(def.effect)}</span>` : ''}
+            ${corpse ? '<span class="carried__note">帶回地表才能安葬</span>' : ''}
           </span>
           <span class="carried__meta">
             ${i.weight}kg
-            <button class="carried__drop" data-drop="${esc(i.id)}" type="button">丟棄</button>
+            <button class="carried__drop" data-drop="${esc(i.id)}" type="button">
+              ${corpse ? '留下' : '丟棄'}
+            </button>
           </span>
         </li>`
     })
@@ -242,7 +246,7 @@ function ended(state: RunState): string {
       <div class="ended__title">${surfaced ? '回到了奧斯城' : '探索結束'}</div>
       ${body}
       <div class="actions">
-        <button class="action" data-restart="1" type="button">再一次</button>
+        <button class="action action--key" data-return="1" type="button">回到奧斯城</button>
       </div>
     </div>`
 }

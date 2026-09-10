@@ -12,6 +12,8 @@ const member = (id: string, cap: number, status: Character['status'] = 'alive'):
   carryCapacity: cap,
   immuneToCurse: false,
   status,
+  afflictions: [],
+  bonds: {},
 })
 
 describe('weight', () => {

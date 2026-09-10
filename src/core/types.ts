@@ -4,8 +4,9 @@ export interface Character {
   id: string
   name: string
   hp: number
+  /** 基礎值。永久損傷的扣減不寫進這裡，而是在出發時換算（見 core/meta.ts） */
   maxHp: number
-  /** 負荷耐受度。M2 的撤離系統會用到，M1 僅顯示 */
+  /** 負荷耐受度 */
   tolerance: number
   maxTolerance: number
   carryCapacity: number
@@ -13,9 +14,28 @@ export interface Character {
   immuneToCurse: boolean
   /** lost = 被留在深淵。不是死亡，日後可能以成之末端的身分再遇 */
   status: 'alive' | 'dead' | 'lost'
+  /** 永久損傷的 id，跨場次保留。可重複（例如多次失去） */
+  afflictions: string[]
+  /** 與其他隊員的共同生還次數 */
+  bonds: Record<string, number>
 }
 
-export type ItemKind = 'loot' | 'relic'
+/** 被留在深淵的人。M5 會讓他們以成之末端的身分回來 */
+export interface LostSoul {
+  name: string
+  depth: number
+}
+
+export interface MemorialEntry {
+  name: string
+  depth: number
+  cause: 'dead' | 'lost'
+  /** 遺體是否被帶回地表安葬 */
+  buried: boolean
+  runIndex: number
+}
+
+export type ItemKind = 'loot' | 'relic' | 'corpse'
 
 export interface Item {
   id: string
@@ -27,6 +47,8 @@ export interface Item {
   identified: boolean
   /** 對應 data/relics.ts 的定義 */
   relicId?: string
+  /** 遺體所屬的隊員 id */
+  ownerId?: string
 }
 
 export interface Supplies {
@@ -90,6 +112,8 @@ export interface RunState {
   burden: Burden
   /** 本次撤離已經走過的上升節點數 */
   ascentSteps: number
+  /** 過去被留在深淵的人，會在探索中以聲音的形式出現 */
+  echoes: LostSoul[]
   current: AbyssNode
   choices: AbyssNode[]
   log: LogEntry[]

@@ -8,6 +8,7 @@ import type {
   Character,
   Item,
   LogTone,
+  LostSoul,
   RunState,
   SupplyKey,
 } from './types'
@@ -23,7 +24,12 @@ import { LOOT } from '../data/loot'
 import { startingParty, startingSupplies } from '../data/party'
 import { RELIC_DEFS, relicById } from '../data/relics'
 
-export function createRun(seed: string): RunState {
+export interface RunOptions {
+  party?: Character[]
+  echoes?: LostSoul[]
+}
+
+export function createRun(seed: string, options: RunOptions = {}): RunState {
   const rngState = hashSeed(seed)
   const [entrance, s1] = makeNode(rngState, 0, 0, 'rest')
   const gen = generateChoices(s1, 1, 0, 'down')
@@ -34,7 +40,8 @@ export function createRun(seed: string): RunState {
     depth: 0,
     maxDepthReached: 0,
     direction: 'down',
-    party: startingParty(),
+    party: options.party ?? startingParty(),
+    echoes: options.echoes ?? [],
     supplies: startingSupplies(),
     carried: [],
     exhaustion: 0,
@@ -315,9 +322,18 @@ export function dropItem(state: RunState, itemId: string): void {
   const item = state.carried[idx]
   if (!item) return
   state.carried.splice(idx, 1)
+
   if (state.burden.mode === 'ward' && !hasWardRelic(state)) {
     state.burden = { mode: 'spread', targetId: null }
   }
+
+  if (item.kind === 'corpse') {
+    const owner = state.party.find((c) => c.id === item.ownerId)
+    if (owner) owner.status = 'lost'
+    push(state, `把${item.name}留下了。深淵會留住他。`, 'grim')
+    return
+  }
+
   push(state, `丟下了${item.name}。走了這麼遠才拿到的。`, 'cold')
 }
 
@@ -388,7 +404,27 @@ function resolveNode(state: RunState, node: AbyssNode): void {
   }
 }
 
+/**
+ * 被留在深淵的人會回來。M5 會讓他們成為真正的敵人，
+ * 現在先讓玩家聽見自己留下的名字。
+ */
+function echoOfTheLost(state: RunState, node: AbyssNode): boolean {
+  const near = state.echoes.filter((e) => Math.abs(e.depth - state.depth) < 2500)
+  if (near.length === 0) return false
+
+  const [roll, s1] = nextInt(state.rngState, 1, 100)
+  state.rngState = s1
+  if (roll > 20) return false
+
+  const [soul, s2] = pick(state.rngState, near)
+  state.rngState = s2
+  push(state, `${node.label}。有什麼東西在叫著「${soul.name}」。沒有人回答。`, 'grim')
+  return true
+}
+
 function resolveEncounter(state: RunState, node: AbyssNode): void {
+  if (echoOfTheLost(state, node)) return
+
   const threat = threatAt(state.maxDepthReached)
   const alive = aliveMembers(state)
   if (alive.length === 0) return
@@ -441,13 +477,27 @@ function applyExhaustion(state: RunState): void {
   }
 }
 
+/** 遺體的重量。帶回去就等於放棄同等重量的戰利品（企劃書 11-5） */
+export const CORPSE_WEIGHT = 22
+
 function damage(state: RunState, c: Character, amount: number): void {
   c.hp = Math.max(0, c.hp - amount)
-  if (c.hp === 0 && c.status === 'alive') {
-    c.status = 'dead'
-    // 死亡回饋刻意克制：名字安靜地變灰（企劃書 16-1）
-    push(state, `${c.name}停下了。`, 'grim')
-  }
+  if (c.hp !== 0 || c.status !== 'alive') return
+
+  c.status = 'dead'
+  // 死亡回饋刻意克制：名字安靜地變灰（企劃書 16-1）
+  push(state, `${c.name}停下了。`, 'grim')
+
+  // 遺體直接進入負重。要不要帶回去，是玩家接下來每一步都要重新回答的問題
+  state.carried.push({
+    id: `corpse-${c.id}`,
+    name: `${c.name}的遺體`,
+    weight: CORPSE_WEIGHT,
+    kind: 'corpse',
+    value: 0,
+    identified: true,
+    ownerId: c.id,
+  })
 }
 
 function reapDead(state: RunState): void {

@@ -13,6 +13,8 @@ export function startingParty(): Character[] {
       carryCapacity: 18,
       immuneToCurse: false,
       status: 'alive',
+      afflictions: [],
+      bonds: {},
     },
     {
       id: 'reg',
@@ -24,6 +26,8 @@ export function startingParty(): Character[] {
       carryCapacity: 34,
       immuneToCurse: true,
       status: 'alive',
+      afflictions: [],
+      bonds: {},
     },
     {
       id: 'urna',
@@ -35,6 +39,8 @@ export function startingParty(): Character[] {
       carryCapacity: 20,
       immuneToCurse: false,
       status: 'alive',
+      afflictions: [],
+      bonds: {},
     },
     {
       id: 'tobi',
@@ -46,6 +52,8 @@ export function startingParty(): Character[] {
       carryCapacity: 14,
       immuneToCurse: false,
       status: 'alive',
+      afflictions: [],
+      bonds: {},
     },
   ]
 }

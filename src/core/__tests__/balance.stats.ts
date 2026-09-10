@@ -4,6 +4,16 @@
  */
 import { formatDepth, layerAt } from '../depth'
 import {
+  availableMembers,
+  concludeRun,
+  createMeta,
+  deployParty,
+  PARTY_SIZE,
+  RECRUIT_COST,
+  recruit,
+  replenish,
+} from '../meta'
+import {
   aliveMembers,
   beginAscent,
   camp,
@@ -81,6 +91,55 @@ function prudentRun(seed: string, turnAt: number) {
   }
 }
 
+/** 連續玩 N 趟，觀察名冊會不會進入死亡螺旋（M3） */
+function campaign(runs: number, turnAt: number) {
+  const meta = createMeta(12345)
+  const rows: string[] = []
+
+  for (let i = 0; i < runs; i++) {
+    replenish(meta)
+    while (availableMembers(meta).length < PARTY_SIZE && meta.funds >= RECRUIT_COST) {
+      meta.funds -= RECRUIT_COST
+      recruit(meta)
+    }
+
+    const ids = availableMembers(meta)
+      .slice(0, PARTY_SIZE)
+      .map((c) => c.id)
+    const s = createRun(`c-${i}`, { party: deployParty(meta, ids), echoes: meta.lostSouls })
+
+    let guard = 0
+    while (!s.over && s.depth < turnAt && guard++ < 300) {
+      if (canCamp(s) && aliveMembers(s).some((c) => c.hp < c.maxHp * 0.6)) {
+        camp(s)
+        continue
+      }
+      if (!step(s)) break
+    }
+    if (!s.over) beginAscent(s)
+    while (!s.over && guard++ < 500) {
+      if (canCamp(s) && aliveMembers(s).some((c) => c.tolerance <= 2)) {
+        camp(s)
+        continue
+      }
+      if (!step(s)) break
+    }
+
+    const summary = concludeRun(meta, s)
+    const afflictions = meta.roster.reduce((a, c) => a + c.afflictions.length, 0)
+    const bonds = meta.roster.reduce((a, c) => a + Object.values(c.bonds).reduce((x, y) => x + y, 0), 0)
+
+    rows.push(
+      `${String(i + 1).padStart(3)}  ${summary.surfaced ? '生還' : '全滅'}  ` +
+        `資金 ${String(meta.funds).padStart(6)}  ` +
+        `可用 ${String(availableMembers(meta).length).padStart(2)}  ` +
+        `墓地 ${String(meta.graveyard.length).padStart(2)}  ` +
+        `損傷 ${String(afflictions).padStart(2)}  羈絆 ${String(bonds).padStart(3)}`,
+    )
+  }
+  return rows
+}
+
 const N = 200
 
 console.log('── 只往下衝、從不回頭 ──')
@@ -107,3 +166,9 @@ for (const turnAt of [800, 1600, 2800, 4500, 7500, 10000, 12500, 14000]) {
       `${value.toFixed(0).padStart(8)}  ${(rate * value).toFixed(0).padStart(9)}`,
   )
 }
+
+console.log('\n── 連續 15 趟（折返於 4,500m）：名冊會不會撐不住？──')
+for (const row of campaign(15, 4500)) console.log(row)
+
+console.log('\n── 連續 15 趟（折返於 9,000m）──')
+for (const row of campaign(15, 9000)) console.log(row)
