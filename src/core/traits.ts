@@ -1,4 +1,5 @@
-import type { Character } from './types'
+import type { Character, Item } from './types'
+import { relicById } from '../data/relics'
 
 /**
  * 探索用的被動能力。
@@ -106,6 +107,10 @@ export interface PartyBehaviors {
   appetite: number
   ropeless: boolean
   survey: boolean
+  /** 遺物帶來的負重增減 */
+  carry: number
+  /** 深層的額外幻覺機率 */
+  phantom: number
 }
 
 export function partyBehaviors(party: readonly Character[]): PartyBehaviors {
@@ -116,6 +121,8 @@ export function partyBehaviors(party: readonly Character[]): PartyBehaviors {
     appetite: 0,
     ropeless: false,
     survey: false,
+    carry: 0,
+    phantom: 0,
   }
 
   for (const c of party) {
@@ -131,5 +138,38 @@ export function partyBehaviors(party: readonly Character[]): PartyBehaviors {
     }
   }
 
+  return out
+}
+
+/**
+ * 隊伍能力 = 特質 + 帶在身上的常駐型遺物。
+ *
+ * 未鑑定的遺物不生效 —— 你不知道那是什麼，就只是背著一塊金屬。
+ * 這也讓「鑑定」多了一個具體的理由。
+ */
+export function runBehaviors(
+  party: readonly Character[],
+  carried: readonly Item[],
+): PartyBehaviors {
+  const out = partyBehaviors(party)
+
+  for (const item of carried) {
+    if (item.kind !== 'relic' || !item.identified || !item.relicId) continue
+    const passive = relicById(item.relicId)?.passive
+    if (!passive) continue
+
+    out.curseResist = Math.max(out.curseResist, passive.curseResist ?? 0)
+    out.curseResist -= passive.curseBurden ?? 0
+    out.forage += passive.forage ?? 0
+    out.camp += passive.camp ?? 0
+    out.appetite += passive.appetite ?? 0
+    out.carry += passive.carry ?? 0
+    out.phantom += passive.phantom ?? 0
+    out.ropeless = out.ropeless || !!passive.ropeless
+    out.survey = out.survey || !!passive.survey
+  }
+
+  out.camp = Math.max(0, out.camp)
+  out.forage = Math.max(-2, out.forage)
   return out
 }

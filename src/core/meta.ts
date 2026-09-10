@@ -442,6 +442,8 @@ export interface RunSummary {
   basesOpened: string[]
   /** 帶回地表、進了倉庫的遺物 */
   relicsKept: string[]
+  /** 遺物代價造成、超出這一趟的後果 */
+  aftermath: string[]
   survivors: string[]
   dead: string[]
   lost: string[]
@@ -465,6 +467,7 @@ export function concludeRun(meta: MetaState, run: RunState): RunSummary {
     promoted: null,
     basesOpened: [],
     relicsKept: [],
+    aftermath: [],
     survivors: [],
     dead: [],
     lost: [],
@@ -572,7 +575,8 @@ export function concludeRun(meta: MetaState, run: RunState): RunSummary {
     }
   }
 
-  settleQuests(meta, run, summary, deployedCount)
+  const failAll = settleAftermath(meta, run, summary)
+  settleQuests(meta, run, summary, deployedCount, failAll)
 
   const rank = promote(meta)
   if (rank) summary.promoted = rank.name
@@ -585,14 +589,60 @@ export function concludeRun(meta: MetaState, run: RunState): RunSummary {
  * 委託驗收。承接的委託只有兩種下場：這一趟達成，或者失去。
  * 沒有「下次再說」—— 否則接下委託就沒有風險。
  */
+/**
+ * 遺物的代價常常超出一趟探索的範圍 —— 十年、資金、永久損傷。
+ * 那些留到回城才結算。回傳是否所有委託都得作廢。
+ */
+function settleAftermath(meta: MetaState, run: RunState, summary: RunSummary): boolean {
+  let failAll = false
+
+  for (const effect of run.aftermath) {
+    switch (effect.kind) {
+      case 'days':
+        advanceDays(meta, effect.amount)
+        summary.aftermath.push(
+          effect.amount >= 365
+            ? `外界流逝了 ${Math.round(effect.amount / 365)} 年。這裡已經不是你記得的樣子。`
+            : `外界過了 ${effect.amount} 天。`,
+        )
+        break
+
+      case 'fundsRatio': {
+        const lost = Math.round(meta.funds * effect.ratio)
+        meta.funds -= lost
+        summary.aftermath.push(`帳付掉了 ${lost}。`)
+        break
+      }
+
+      case 'affliction': {
+        const entry = meta.roster.find((c) => c.id === effect.charId)
+        if (!entry) break
+        const pool = CURSE_AFFLICTIONS[layerAt(run.maxDepthReached).id] ?? ['tremor']
+        const [id, s] = pick(meta.rngState, pool)
+        meta.rngState = s
+        entry.afflictions.push(id)
+        summary.newAfflictions.push({ name: entry.name, affliction: id })
+        break
+      }
+
+      case 'questsFail':
+        failAll = true
+        break
+    }
+  }
+
+  return failAll
+}
+
 function settleQuests(
   meta: MetaState,
   run: RunState,
   summary: RunSummary,
   deployed: number,
+  failAll: boolean,
 ): void {
   for (const quest of activeQuests(meta)) {
-    if (evaluateQuest(quest, run, deployed)) {
+    if (!failAll && evaluateQuest(quest, run, deployed)) {
       meta.funds += quest.reward
       meta.questsCompleted += 1
       summary.questsDone.push({ title: quest.title, reward: quest.reward })

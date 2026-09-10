@@ -54,6 +54,7 @@ function summaryPanel(summary: RunSummary | null): string {
     lines.push('沒有人回來。')
   }
   for (const r of summary.relicsKept) lines.push(`帶回了${r}，收進倉庫。`)
+  for (const a of summary.aftermath) lines.push(a)
   if (summary.buried.length) lines.push(`帶回安葬：${summary.buried.join('、')}。`)
   if (summary.dead.length) lines.push(`死在深淵裡：${summary.dead.join('、')}。`)
   if (summary.lost.length) lines.push(`留在深淵：${summary.lost.join('、')}。`)

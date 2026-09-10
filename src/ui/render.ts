@@ -8,12 +8,12 @@ import {
   canUseAnchor,
   encumbranceOfRun,
   usableRelics,
+  capacityOfRun,
   loadOf,
   totalValue,
 } from '../core/run'
-import { partyBehaviors } from '../core/traits'
+import { runBehaviors } from '../core/traits'
 import type { NodeKind, RunState, Supplies } from '../core/types'
-import { capacityOf } from '../core/weight'
 import { relicById } from '../data/relics'
 import { renderBattle } from './battle'
 import {
@@ -106,7 +106,7 @@ function statusBar(state: RunState, ui: UiState): string {
   const hp = alive.reduce((a, c) => a + distort(c.hp, trust, `${c.id}:${c.hp}:${state.depth}`), 0)
   const maxHp = alive.reduce((a, c) => a + c.maxHp, 0)
   const load = loadOf(state)
-  const cap = capacityOf(state.party)
+  const cap = capacityOfRun(state)
   const enc = encumbranceOfRun(state)
 
   const warnings = alerts(state)
@@ -367,7 +367,7 @@ function ended(state: RunState): string {
 function actions(state: RunState): string {
   const up = state.direction === 'up'
   const blocked = !canMove(state)
-  const survey = partyBehaviors(state.party).survey
+  const survey = runBehaviors(state.party, state.carried).survey
   const trust = reliabilityAt(state.depth)
 
   /**

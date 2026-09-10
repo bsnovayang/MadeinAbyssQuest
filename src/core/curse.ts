@@ -1,5 +1,5 @@
 import { layerAt } from './depth'
-import { partyBehaviors } from './traits'
+import { runBehaviors } from './traits'
 import type { Character, RunState } from './types'
 
 export interface CurseTier {
@@ -45,7 +45,7 @@ export function bearersOf(state: RunState): Character[] {
 export function distributeBurden(state: RunState): Record<string, number> {
   const tier = tierFor(state.depth)
   // 娜娜奇這類角色能讓每一步都輕一點，但永遠不會歸零
-  const relief = partyBehaviors(state.party).curseResist
+  const relief = runBehaviors(state.party, state.carried).curseResist
   const cost = Math.max(1, tier.cost - relief)
   const bearers = bearersOf(state)
   const out: Record<string, number> = {}
@@ -84,6 +84,7 @@ export function forecast(state: RunState): Record<string, number> {
   return out
 }
 
+/** 未鑑定的籠子不生效 —— 你不知道那是什麼，就只是背著一個籠子 */
 export function hasWardRelic(state: RunState): boolean {
-  return state.carried.some((i) => i.relicId === 'ward-basket')
+  return state.carried.some((i) => i.relicId === 'ward-basket' && i.identified)
 }

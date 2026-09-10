@@ -11,7 +11,7 @@ import { layerAt, valueMultiplier, waterCostAt } from './depth'
 import { generateChoices, makeNode } from './map'
 import { phantomChance, PHANTOM_ENTRIES } from './perception'
 import { hashSeed, nextInt, pick } from './rng'
-import { partyBehaviors } from './traits'
+import { runBehaviors } from './traits'
 import type {
   AbyssNode,
   BurdenMode,
@@ -33,7 +33,7 @@ import {
 import { BANTER, BANTER_AFTER_LOSS } from '../data/banter'
 import { LOOT } from '../data/loot'
 import { startingParty, startingSupplies } from '../data/party'
-import { RELIC_DEFS, relicById } from '../data/relics'
+import { RELIC_DEFS, relicById, type RelicCost } from '../data/relics'
 import { skillById } from '../data/skills'
 
 export interface RunOptions {
@@ -62,6 +62,7 @@ export function createRun(seed: string, options: RunOptions = {}): RunState {
     party: options.party ?? startingParty(),
     echoes: options.echoes ?? [],
     battle: null,
+    aftermath: [],
     supplies: { ...(options.supplies ?? startingSupplies()) },
     carried: (options.carried ?? []).map((i) => ({ ...i })),
     exhaustion: 0,
@@ -101,8 +102,13 @@ export function loadOf(state: RunState): number {
   return totalWeight(state.supplies, state.carried)
 }
 
+export function capacityOfRun(state: RunState): number {
+  const bonus = runBehaviors(state.party, state.carried).carry
+  return Math.max(4, capacityOf(state.party) + bonus)
+}
+
 export function encumbranceOfRun(state: RunState): Encumbrance {
-  return encumbranceOf(loadOf(state), capacityOf(state.party))
+  return encumbranceOf(loadOf(state), capacityOfRun(state))
 }
 
 export function canMove(state: RunState): boolean {
@@ -317,23 +323,7 @@ export function useEscapeRelic(state: RunState, itemId: string): void {
   }
 
   state.carried.splice(idx, 1)
-
-  if (def.id === 'immovable-wedge') {
-    const alive = aliveMembers(state)
-    const [i, s] = nextInt(state.rngState, 0, Math.max(0, alive.length - 1))
-    state.rngState = s
-    const victim = alive[i]
-    if (victim) {
-      victim.status = 'lost'
-      push(state, `${victim.name}被留在原地。他沒有掙扎。`, 'grim')
-    }
-  }
-
-  if (def.id === 'pyre-cloth') {
-    const burned = state.carried.length
-    state.carried = []
-    push(state, `火葬布燒盡了帶著的一切。${burned} 件東西，全部沒了。`, 'grim')
-  }
+  payRelicCost(state, def.escapeCost ?? { kind: 'none' })
 
   if (aliveMembers(state).length === 0) {
     state.over = true
@@ -343,6 +333,72 @@ export function useEscapeRelic(state: RunState, itemId: string): void {
   }
 
   surface(state, `${def.name}生效了。回到了地表。`)
+}
+
+/**
+ * 代價一定會發生。
+ * 超出這一趟範圍的（十年、資金、永久損傷）留給城鎮結算。
+ */
+function payRelicCost(state: RunState, cost: RelicCost): void {
+  switch (cost.kind) {
+    case 'none':
+      return
+
+    case 'loseMember': {
+      const alive = aliveMembers(state)
+      if (alive.length === 0) return
+      const victim =
+        cost.pick === 'weakest'
+          ? alive.reduce((a, c) => (c.hp < a.hp ? c : a), alive[0] as Character)
+          : (() => {
+              const [i, s] = nextInt(state.rngState, 0, alive.length - 1)
+              state.rngState = s
+              return alive[i] as Character
+            })()
+      victim.status = 'lost'
+      push(state, `${victim.name}被留在原地。他沒有掙扎。`, 'grim')
+      return
+    }
+
+    case 'burn': {
+      const keep = (i: Item) =>
+        cost.what === 'loot' ? i.kind !== 'loot' : cost.what === 'relics' ? i.kind !== 'relic' : false
+      const before = state.carried.length
+      state.carried = state.carried.filter(keep)
+      push(state, `${before - state.carried.length} 件東西化成了灰。`, 'grim')
+      return
+    }
+
+    case 'funds':
+      state.aftermath.push({ kind: 'fundsRatio', ratio: cost.ratio })
+      push(state, '這筆帳要回到地表才付得完。', 'grim')
+      return
+
+    case 'days':
+      state.aftermath.push({ kind: 'days', amount: cost.amount })
+      push(state, '外面的世界不會等你。', 'grim')
+      return
+
+    case 'afflict': {
+      const alive = aliveMembers(state)
+      const victims =
+        cost.who === 'all'
+          ? alive
+          : alive.length === 0
+            ? []
+            : [alive.reduce((a, c) => (c.tolerance < a.tolerance ? c : a), alive[0] as Character)]
+      for (const v of victims) state.aftermath.push({ kind: 'affliction', charId: v.id })
+      if (victims.length) {
+        push(state, `${victims.map((v) => v.name).join('、')}身上留下了不會消失的東西。`, 'grim')
+      }
+      return
+    }
+
+    case 'questsFail':
+      state.aftermath.push({ kind: 'questsFail' })
+      push(state, '回去以後沒有人會相信你們走過那裡。', 'grim')
+      return
+  }
 }
 
 export function useMedicine(state: RunState, memberId: string): void {
@@ -366,13 +422,13 @@ function surface(state: RunState, text: string): void {
 // ─── 其他動作 ────────────────────────────────────────────────
 
 export function campFoodCost(state: RunState): number {
-  return 1 + partyBehaviors(state.party).appetite
+  return 1 + runBehaviors(state.party, state.carried).appetite
 }
 
 export function camp(state: RunState): void {
   if (!canCamp(state)) return
 
-  const behaviors = partyBehaviors(state.party)
+  const behaviors = runBehaviors(state.party, state.carried)
   state.supplies.food = Math.max(0, state.supplies.food - campFoodCost(state))
   state.daysElapsed += 1
 
@@ -438,7 +494,7 @@ function resolveNode(state: RunState, node: AbyssNode): void {
       break
 
     case 'forage': {
-      const bonus = partyBehaviors(state.party).forage
+      const bonus = runBehaviors(state.party, state.carried).forage
       const [rawFood, s1] = nextInt(state.rngState, 0, 2)
       const [rawWater, s2] = nextInt(s1, 1, 3)
       state.rngState = s2
@@ -455,7 +511,7 @@ function resolveNode(state: RunState, node: AbyssNode): void {
       break
 
     case 'obstacle':
-      if (partyBehaviors(state.party).ropeless) {
+      if (runBehaviors(state.party, state.carried).ropeless) {
         push(state, `${node.label}。雷格伸長手臂，把所有人送了過去。`, 'plain')
       } else if (state.supplies.rope > 0) {
         state.supplies.rope -= 1
@@ -687,8 +743,9 @@ function addItem(state: RunState, item: Omit<Item, 'id'>): void {
 
 /** 五層以下，筆記本上會出現不是自己寫的條目（企劃書 15-3） */
 function spawnPhantom(state: RunState): void {
-  const chance = phantomChance(state.depth)
-  if (chance <= 0) return
+  const base = phantomChance(state.depth)
+  if (base <= 0) return
+  const chance = base + runBehaviors(state.party, state.carried).phantom
 
   const [r, s1] = nextInt(state.rngState, 1, 100)
   state.rngState = s1

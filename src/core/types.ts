@@ -26,6 +26,16 @@ export interface Character {
   bonds: Record<string, number>
 }
 
+/**
+ * 探索留下、要由城鎮結算的後果。
+ * 遺物的代價常常超出一趟探索的範圍（十年、資金、永久損傷）。
+ */
+export type Aftermath =
+  | { kind: 'affliction'; charId: string }
+  | { kind: 'days'; amount: number }
+  | { kind: 'fundsRatio'; ratio: number }
+  | { kind: 'questsFail' }
+
 /** 被留在深淵的人。M5 會讓他們以成之末端的身分回來 */
 export interface LostSoul {
   name: string
@@ -122,6 +132,8 @@ export interface RunState {
   echoes: LostSoul[]
   /** 進行中的戰鬥。不為 null 時，探索的一切都要等它結束 */
   battle: BattleState | null
+  /** 回到城裡才會結算的後果 */
+  aftermath: Aftermath[]
   current: AbyssNode
   choices: AbyssNode[]
   log: LogEntry[]
