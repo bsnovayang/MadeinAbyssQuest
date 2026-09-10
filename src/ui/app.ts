@@ -10,11 +10,15 @@ import {
   createMeta,
   deployParty,
   hire,
+  identifyRelic,
   normalizeMeta,
   PARTY_SIZE,
   replenish,
+  sellRelic,
   setDepartDepth,
   takeQuest,
+  toggleTakeDown,
+  withdrawRelics,
   type MetaState,
   type RunSummary,
 } from '../core/meta'
@@ -296,6 +300,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       echoes: meta.lostSouls,
       supplies: meta.loadout,
       startDepth: meta.departDepth,
+      carried: withdrawRelics(meta),
     })
     summary = null
     shownLogId = 0
@@ -418,6 +423,27 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     if (d.depart) return depart()
     if (d.cure) return cure(d.cure)
     if (d.return) return returnToTown()
+
+    if (d.identify) {
+      identifyRelic(meta, d.identify)
+      paint()
+      persist()
+      return
+    }
+
+    if (d.sell) {
+      sellRelic(meta, d.sell)
+      paint()
+      persist()
+      return
+    }
+
+    if (d.takeDown) {
+      toggleTakeDown(meta, d.takeDown)
+      paint()
+      persist()
+      return
+    }
 
     if (d.hire) {
       if (!hire(meta, d.hire)) return

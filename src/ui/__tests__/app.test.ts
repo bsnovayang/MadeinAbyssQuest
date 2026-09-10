@@ -410,6 +410,64 @@ describe('隊員詳細', () => {
   })
 })
 
+describe('遺物與鑑定師', () => {
+  function stock(identified = false): void {
+    app.snapshot().meta.vault.push({
+      id: 'v1',
+      name: identified ? '不動之楔' : '鏽色的楔子',
+      weight: 6,
+      kind: 'relic',
+      value: 900,
+      identified,
+      relicId: 'immovable-wedge',
+    })
+    goto('vault')
+  }
+
+  it('倉庫空的時候說得清楚為什麼', () => {
+    goto('vault')
+    expect(root.textContent).toContain('倉庫是空的')
+  })
+
+  it('未鑑定的只看得到外觀，不會洩漏是什麼', () => {
+    stock()
+    const card = root.querySelector('.applicant')!
+    expect(card.textContent).toContain('鏽色的楔子')
+    expect(card.textContent).not.toContain('不動之楔')
+    expect(card.textContent).not.toContain('隨機一名隊友')
+  })
+
+  it('鑑定要花錢，之後才看得到效果與代價', () => {
+    stock()
+    app.snapshot().meta.funds = 9999
+    goto('vault')
+
+    click('[data-identify="v1"]')
+    const card = root.querySelector('.applicant')!
+    expect(card.textContent).toContain('不動之楔')
+    expect(card.textContent).toContain('隨機一名隊友被留在原地')
+    expect(app.snapshot().meta.funds).toBeLessThan(9999)
+  })
+
+  it('可以變賣，未鑑定的價錢比較差', () => {
+    stock()
+    const before = app.snapshot().meta.funds
+    click('[data-sell="v1"]')
+    expect(app.snapshot().meta.vault).toHaveLength(0)
+    expect(app.snapshot().meta.funds).toBe(before + 270)
+  })
+
+  it('可以指定帶下去，出發時會進背包', () => {
+    stock(true)
+    click('[data-take-down="v1"]')
+    expect(app.snapshot().meta.takeDown).toEqual(['v1'])
+
+    departWith('riko', 'reg')
+    expect(app.snapshot().run?.carried.some((i) => i.relicId === 'immovable-wedge')).toBe(true)
+    expect(app.snapshot().meta.vault).toHaveLength(0)
+  })
+})
+
 describe('紀錄頁', () => {
   beforeEach(() => goto('records'))
 

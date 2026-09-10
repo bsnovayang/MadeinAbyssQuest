@@ -9,19 +9,23 @@ import {
   departCost,
   departFee,
   hireCost,
+  identifyCost,
   isFit,
   loadoutCost,
   nextRank,
   openQuests,
   PARTY_SIZE,
   rosterCap,
+  sellValue,
   SUPPLY_PRICE,
+  takeDownWeight,
   unlockedBases,
   type MetaState,
   type RunSummary,
 } from '../core/meta'
 import { MAX_ACTIVE_QUESTS, type Quest } from '../core/quests'
 import { baseFee } from '../data/bases'
+import { relicById } from '../data/relics'
 import { traitsOf } from '../core/traits'
 import type { Character, SupplyKey } from '../core/types'
 import { suppliesWeight } from '../core/weight'
@@ -49,6 +53,7 @@ function summaryPanel(summary: RunSummary | null): string {
   } else {
     lines.push('沒有人回來。')
   }
+  for (const r of summary.relicsKept) lines.push(`帶回了${r}，收進倉庫。`)
   if (summary.buried.length) lines.push(`帶回安葬：${summary.buried.join('、')}。`)
   if (summary.dead.length) lines.push(`死在深淵裡：${summary.dead.join('、')}。`)
   if (summary.lost.length) lines.push(`留在深淵：${summary.lost.join('、')}。`)
@@ -398,7 +403,69 @@ function dangerZone(wiping: boolean): string {
     </section>`
 }
 
-export type TownTab = 'quests' | 'party' | 'supply' | 'orphanage' | 'records'
+export type TownTab = 'quests' | 'party' | 'supply' | 'orphanage' | 'vault' | 'records'
+
+/**
+ * 鑑定師。
+ *
+ * 鑑定的價值不只是「告訴你那是什麼」，也是「讓你賣得掉」——
+ * 未鑑定的遺物只值三成，所以就算玩家背熟了外觀，鑑定仍然有意義。
+ */
+function vault(meta: MetaState): string {
+  if (meta.vault.length === 0) {
+    return `
+      <section>
+        <h2>遺物</h2>
+        <p class="hint">倉庫是空的。深淵裡撿到的東西，要活著帶回來才算。</p>
+      </section>`
+  }
+
+  const rows = meta.vault
+    .map((i) => {
+      const def = i.relicId ? relicById(i.relicId) : undefined
+      const cost = identifyCost(i)
+      const taking = meta.takeDown.includes(i.id)
+
+      const body = i.identified
+        ? `
+          <span class="roster__stats">${esc(def?.effect ?? '')}</span>
+          <span class="relic__cost">代價　${esc(def?.cost ?? '')}</span>`
+        : '<span class="roster__stats">還不知道是什麼。鑑定過才賣得到好價錢。</span>'
+
+      return `
+        <div class="applicant ${taking ? 'applicant--taking' : ''}">
+          <div class="applicant__row">
+            <span class="roster__name">${esc(i.name)}</span>
+            <span class="applicant__cost">${i.weight}kg</span>
+          </div>
+          ${body}
+          <div class="member__btns">
+            ${
+              i.identified
+                ? ''
+                : `<button class="ward" data-identify="${esc(i.id)}" type="button" ${
+                    meta.funds >= cost ? '' : 'disabled'
+                  }>鑑定 ${cost}</button>`
+            }
+            <button class="ward ${taking ? 'ward--on' : ''}" data-take-down="${esc(i.id)}" type="button">
+              ${taking ? '帶下去' : '留在城裡'}
+            </button>
+            <button class="ward" data-sell="${esc(i.id)}" type="button">變賣 ${sellValue(i)}</button>
+          </div>
+        </div>`
+    })
+    .join('')
+
+  const weight = takeDownWeight(meta)
+
+  return `
+    <section>
+      <h2>遺物　${meta.vault.length}</h2>
+      <p class="hint">未鑑定的只值三成。帶下去的遺物會佔負重，而且死在下面就再也拿不回來。</p>
+      <div class="applicants">${rows}</div>
+      ${weight > 0 ? `<div class="buy__total">要帶下去的重量　${weight.toFixed(1)}kg</div>` : ''}
+    </section>`
+}
 
 function questCard(q: Quest, meta: MetaState, taken: boolean): string {
   const daysLeft = q.deadline - meta.day
@@ -518,6 +585,7 @@ function tabBar(tab: TownTab, meta: MetaState, selected: string[]): string {
     { id: 'party', label: '② 隊伍', note: `${selected.length}/${PARTY_SIZE}` },
     { id: 'supply', label: '③ 補給', note: `${loadoutCost(meta.loadout)}` },
     { id: 'orphanage', label: '孤兒院', note: `${meta.applicants.length}` },
+    { id: 'vault', label: '遺物', note: `${meta.vault.length}` },
     { id: 'records', label: '紀錄', note: `${meta.graveyard.length}` },
   ]
 
@@ -615,6 +683,7 @@ export function renderTown(view: TownView): string {
     party: partyPage,
     supply: supplyPage,
     orphanage: orphanage(meta),
+    vault: vault(meta),
     records: `${records(meta)}${graveyard(meta)}${dangerZone(wiping)}`,
   }
 

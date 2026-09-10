@@ -7,7 +7,7 @@ import {
   canMove,
   canUseAnchor,
   encumbranceOfRun,
-  escapeRelics,
+  usableRelics,
   loadOf,
   totalValue,
 } from '../core/run'
@@ -249,7 +249,9 @@ function supplyBody(state: RunState): string {
 
       // 不知道值多少錢，就沒辦法決定該丟什麼
       const notes: string[] = []
-      if (def) {
+      if (def && !i.identified) {
+        notes.push('未鑑定・帶回奧斯城才知道是什麼')
+      } else if (def) {
         notes.push(def.effect)
         notes.push(
           def.kind === 'escape'
@@ -422,10 +424,21 @@ function actions(state: RunState): string {
  * 這種東西不該是隨手誤觸得到的大按鈕。多一次展開是刻意的防呆。
  */
 function relicBody(state: RunState): string {
-  const buttons = escapeRelics(state)
+  const buttons = usableRelics(state)
     .map((i) => {
       const def = relicById(i.relicId ?? '')
       if (!def) return ''
+
+      // 未鑑定的只看得到外觀 —— 說出效果就等於免費幫玩家鑑定
+      if (!i.identified) {
+        return `
+          <button class="relic relic--unknown" data-relic="${esc(i.id)}" type="button">
+            <span class="relic__name">${esc(i.name)}</span>
+            <span class="relic__effect">沒有人知道它是什麼</span>
+            <span class="relic__cost">用了才會知道，而且無法反悔</span>
+          </button>`
+      }
+
       // 只寫代價不寫效果，等於叫玩家別按
       return `
         <button class="relic" data-relic="${esc(i.id)}" type="button">
@@ -437,7 +450,7 @@ function relicBody(state: RunState): string {
     .join('')
 
   return `
-    <p class="hint">按下去就直接回到地表，剩下的路不必走。但代價一定會發生。</p>
+    <p class="hint">已鑑定的按下去就直接回到地表。未鑑定的可以現在試，也可以帶回奧斯城找人看。</p>
     <div class="relics">${buttons}</div>`
 }
 
@@ -465,7 +478,7 @@ export function render(state: RunState, ui: UiState): string {
   const up = state.direction === 'up'
   const alive = state.party.filter((c) => c.status === 'alive').length
   const questCount = ui.quests?.length ?? 0
-  const relicCount = escapeRelics(state).length
+  const relicCount = usableRelics(state).length
 
   // 撤離時預設攤開隊伍，因為用藥與轉嫁都在那裡
   const open = (id: Parameters<typeof isPanelOpen>[1], fallback: boolean) =>

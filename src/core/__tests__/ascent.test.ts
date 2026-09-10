@@ -7,7 +7,7 @@ import {
   beginAscent,
   camp,
   createRun,
-  escapeRelics,
+  usableRelics,
   moveTo,
   resumeDescent,
   totalValue,
@@ -158,7 +158,7 @@ describe('escape relics', () => {
   it('不動之楔讓全隊回到地表，但留下一個人', () => {
     const s = planted('wedge', 11000)
     s.carried.push(relic('r1', 'immovable-wedge'))
-    expect(escapeRelics(s)).toHaveLength(1)
+    expect(usableRelics(s)).toHaveLength(1)
 
     useEscapeRelic(s, 'r1')
     expect(s.endReason).toBe('surfaced')
@@ -198,7 +198,7 @@ describe('escape relics', () => {
   it('避咒之籠不是脫離用的遺物', () => {
     const s = planted('ward-not-escape', 5000)
     s.carried.push(relic('r3', 'ward-basket'))
-    expect(escapeRelics(s)).toHaveLength(0)
+    expect(usableRelics(s)).toHaveLength(0)
     useEscapeRelic(s, 'r3')
     expect(s.over).toBe(false)
   })

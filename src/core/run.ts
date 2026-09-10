@@ -42,6 +42,8 @@ export interface RunOptions {
   supplies?: Supplies
   /** 從前線基地出發時的起始深度（企劃書 6-4）。0 = 從地表走下去 */
   startDepth?: number
+  /** 從倉庫帶下去的遺物 */
+  carried?: Item[]
 }
 
 export function createRun(seed: string, options: RunOptions = {}): RunState {
@@ -61,7 +63,7 @@ export function createRun(seed: string, options: RunOptions = {}): RunState {
     echoes: options.echoes ?? [],
     battle: null,
     supplies: { ...(options.supplies ?? startingSupplies()) },
-    carried: [],
+    carried: (options.carried ?? []).map((i) => ({ ...i })),
     exhaustion: 0,
     daysElapsed: 0,
     burden: { mode: 'spread', targetId: null },
@@ -119,8 +121,16 @@ export function canUseAnchor(state: RunState): boolean {
   return !state.over && state.current.kind === 'anchor' && state.supplies.rope >= 1
 }
 
-export function escapeRelics(state: RunState): Item[] {
+/**
+ * 現場用得掉的遺物。
+ *
+ * 未鑑定的一律列入 —— 如果只列出脫離型的，等於免費告訴玩家那是什麼。
+ * 不知道會發生什麼，才是「現場使用」的賭注所在。
+ */
+export function usableRelics(state: RunState): Item[] {
   return state.carried.filter((i) => {
+    if (i.kind !== 'relic') return false
+    if (!i.identified) return true
     const def = i.relicId ? relicById(i.relicId) : undefined
     return def?.kind === 'escape'
   })
@@ -292,7 +302,19 @@ export function useEscapeRelic(state: RunState, itemId: string): void {
   const item = state.carried[idx]
   if (!item?.relicId) return
   const def = relicById(item.relicId)
-  if (def?.kind !== 'escape') return
+  if (!def) return
+
+  // 用了就知道它是什麼了 —— 這正是現場使用的代價與收穫
+  if (!item.identified) {
+    item.identified = true
+    item.name = def.name
+    push(state, `原來是${def.name}。${def.effect}。`, 'cold')
+  }
+
+  if (def.kind !== 'escape') {
+    push(state, `${def.name}沒辦法用來離開這裡。它只是掛在身上。`, 'plain')
+    return
+  }
 
   state.carried.splice(idx, 1)
 
@@ -451,16 +473,17 @@ function resolveNode(state: RunState, node: AbyssNode): void {
     case 'relic': {
       const [def, s1] = pick(state.rngState, RELIC_DEFS)
       state.rngState = s1
+      // 深淵裡撿到的東西沒有標籤（企劃書 10-5）
       addItem(state, {
-        name: def.name,
+        name: def.appearance,
         weight: def.weight,
         value: def.value,
         kind: 'relic',
-        identified: true,
+        identified: false,
         relicId: def.id,
       })
-      push(state, `${node.label}。是遺物 —— ${def.name}，${def.weight}kg。`, 'warm')
-      push(state, `${def.name}：${def.effect}。代價是${def.cost}。`, 'cold')
+      push(state, `${node.label}。是遺物 —— ${def.appearance}，${def.weight}kg。`, 'warm')
+      push(state, '沒有人知道它是什麼。帶回去鑑定，或者現在就試試看。', 'cold')
       break
     }
 

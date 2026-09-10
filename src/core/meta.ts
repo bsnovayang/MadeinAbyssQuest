@@ -9,11 +9,20 @@ import {
   type Quest,
 } from './quests'
 import { COMMON_TRAITS } from './traits'
-import type { Character, LostSoul, MemorialEntry, RunState, Supplies, SupplyKey } from './types'
+import type {
+  Character,
+  Item,
+  LostSoul,
+  MemorialEntry,
+  RunState,
+  Supplies,
+  SupplyKey,
+} from './types'
 import { RECRUIT_BIOS } from '../data/bios'
 import { RECRUIT_NAMES } from '../data/names'
 import { baseFee, BASES, type BaseDef } from '../data/bases'
 import { RANKS, rankAt, type RankDef } from '../data/ranks'
+import { relicById } from '../data/relics'
 import { startingParty, startingSupplies } from '../data/party'
 
 export interface MetaState {
@@ -24,6 +33,10 @@ export interface MetaState {
   applicants: Character[]
   /** 下一趟要帶的補給。出發時才付錢 */
   loadout: Supplies
+  /** 帶回地表的遺物。不會自動變賣，要鑑定或處理掉 */
+  vault: Item[]
+  /** 下一趟要帶下去的遺物 id */
+  takeDown: string[]
   /** 已解鎖的前線基地所在層 */
   bases: number[]
   /** 下一趟的出發深度。0 = 從地表走下去 */
@@ -103,6 +116,8 @@ export function createMeta(rngState = 20260910): MetaState {
     lostSouls: [],
     applicants: [],
     loadout: startingSupplies(),
+    vault: [],
+    takeDown: [],
     bases: [],
     departDepth: 0,
     // 第一趟的本錢。之後就得自己賺
@@ -139,6 +154,8 @@ export function normalizeMeta(meta: MetaState): MetaState {
   meta.nextQuestId ??= 1
   meta.bases ??= []
   meta.departDepth ??= 0
+  meta.vault ??= []
+  meta.takeDown ??= []
   for (const c of [...meta.roster, ...meta.applicants]) {
     c.afflictions ??= []
     c.traits ??= []
@@ -178,6 +195,72 @@ export function promote(meta: MetaState): RankDef | null {
 
 export function rosterCap(meta: MetaState): number {
   return currentRank(meta).rosterCap
+}
+
+// ─── 遺物保管與鑑定 ──────────────────────────────────────────
+
+/**
+ * 未鑑定的遺物賣不了好價錢 ——
+ * 鑑定師的價值不只是「告訴你那是什麼」，也是「讓你賣得掉」。
+ * 因此就算玩家背熟了外觀，鑑定仍然有經濟上的意義。
+ */
+export const UNIDENTIFIED_RATE = 0.3
+export const IDENTIFY_RATE = 0.25
+
+export function identifyCost(item: Item): number {
+  return Math.max(50, Math.round(item.value * IDENTIFY_RATE))
+}
+
+export function sellValue(item: Item): number {
+  return item.identified ? item.value : Math.round(item.value * UNIDENTIFIED_RATE)
+}
+
+export function identifyRelic(meta: MetaState, id: string): boolean {
+  const item = meta.vault.find((i) => i.id === id)
+  if (!item || item.identified) return false
+
+  const cost = identifyCost(item)
+  if (meta.funds < cost) return false
+
+  meta.funds -= cost
+  item.identified = true
+  const def = item.relicId ? relicById(item.relicId) : undefined
+  if (def) item.name = def.name
+  return true
+}
+
+export function sellRelic(meta: MetaState, id: string): boolean {
+  const idx = meta.vault.findIndex((i) => i.id === id)
+  const item = meta.vault[idx]
+  if (!item) return false
+
+  meta.funds += sellValue(item)
+  meta.vault.splice(idx, 1)
+  meta.takeDown = meta.takeDown.filter((x) => x !== id)
+  return true
+}
+
+export function toggleTakeDown(meta: MetaState, id: string): void {
+  if (!meta.vault.some((i) => i.id === id)) return
+  meta.takeDown = meta.takeDown.includes(id)
+    ? meta.takeDown.filter((x) => x !== id)
+    : [...meta.takeDown, id]
+}
+
+export function relicsToTake(meta: MetaState): Item[] {
+  return meta.vault.filter((i) => meta.takeDown.includes(i.id))
+}
+
+export function takeDownWeight(meta: MetaState): number {
+  return relicsToTake(meta).reduce((sum, i) => sum + i.weight, 0)
+}
+
+/** 出發時把選定的遺物從倉庫搬進背包。死在下面就再也拿不回來 */
+export function withdrawRelics(meta: MetaState): Item[] {
+  const taken = relicsToTake(meta)
+  meta.vault = meta.vault.filter((i) => !meta.takeDown.includes(i.id))
+  meta.takeDown = []
+  return taken.map((i) => ({ ...i }))
 }
 
 // ─── 前線基地 ────────────────────────────────────────────────
@@ -357,6 +440,8 @@ export interface RunSummary {
   promoted: string | null
   /** 這一趟開放的前線基地 */
   basesOpened: string[]
+  /** 帶回地表、進了倉庫的遺物 */
+  relicsKept: string[]
   survivors: string[]
   dead: string[]
   lost: string[]
@@ -379,6 +464,7 @@ export function concludeRun(meta: MetaState, run: RunState): RunSummary {
     daysSpent: 0,
     promoted: null,
     basesOpened: [],
+    relicsKept: [],
     survivors: [],
     dead: [],
     lost: [],
@@ -407,8 +493,14 @@ export function concludeRun(meta: MetaState, run: RunState): RunSummary {
   // 只有活著回到地表，戰利品才算數（企劃書 9-2）
   if (surfaced) {
     summary.earned = run.carried
-      .filter((i) => i.kind !== 'corpse')
+      .filter((i) => i.kind === 'loot')
       .reduce((sum, i) => sum + i.value, 0)
+
+    // 遺物不自動變賣，先進倉庫等鑑定
+    for (const item of run.carried.filter((i) => i.kind === 'relic')) {
+      meta.vault.push({ ...item, id: `v${meta.runIndex}-${meta.vault.length}` })
+      summary.relicsKept.push(item.identified ? item.name : '未鑑定的遺物')
+    }
     // 沒用完的補給賣回給補給商。全滅的話當然什麼都沒有
     summary.refunded = Math.floor(loadoutCost(run.supplies) * SUPPLY_REFUND)
     meta.funds += summary.earned + summary.refunded
