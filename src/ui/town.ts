@@ -6,6 +6,8 @@ import {
   bondBetween,
   bondBonus,
   currentRank,
+  departCost,
+  departFee,
   hireCost,
   isFit,
   loadoutCost,
@@ -14,10 +16,12 @@ import {
   PARTY_SIZE,
   rosterCap,
   SUPPLY_PRICE,
+  unlockedBases,
   type MetaState,
   type RunSummary,
 } from '../core/meta'
 import { MAX_ACTIVE_QUESTS, type Quest } from '../core/quests'
+import { baseFee } from '../data/bases'
 import { traitsOf } from '../core/traits'
 import type { Character, SupplyKey } from '../core/types'
 import { suppliesWeight } from '../core/weight'
@@ -53,6 +57,9 @@ function summaryPanel(summary: RunSummary | null): string {
     lines.push(`${a.name}留下了痕跡 —— ${def?.name ?? a.affliction}。${def?.desc ?? ''}`)
   }
   if (summary.promoted) lines.push(`組合承認了你的資格。現在是${summary.promoted}。`)
+  for (const b of summary.basesOpened) {
+    lines.push(`${b}開放了。下一趟可以直接從那裡出發。`)
+  }
 
   return `
     <section class="report ${summary.surfaced ? 'report--warm' : ''}">
@@ -204,6 +211,48 @@ function memberCard(
     </div>`
 }
 
+/**
+ * 出發地點。基地省的是時間，不是代價 ——
+ * 從 7,000m 出發，回程仍然得穿越中間的每一層。
+ */
+function departurePicker(meta: MetaState): string {
+  const bases = unlockedBases(meta)
+  if (bases.length === 0) {
+    return `
+      <section>
+        <h2>出發地點</h2>
+        <p class="hint">
+          目前只能從地表走下去。抵達某一層並且活著回來，那一層的前線基地就會開放。
+        </p>
+      </section>`
+  }
+
+  const option = (depth: number, name: string, desc: string, fee: number) => {
+    const on = meta.departDepth === depth
+    const afford = meta.funds >= loadoutCost(meta.loadout) + fee
+    return `
+      <button class="depart ${on ? 'depart--on' : ''}" data-depart-at="${depth}" type="button" ${
+        afford || on ? '' : 'disabled'
+      }>
+        <span class="depart__row">
+          <span class="depart__name">${esc(name)}</span>
+          <span class="depart__fee">${fee > 0 ? `維護費 ${fee}` : '免費'}</span>
+        </span>
+        <span class="depart__desc">${esc(desc)}</span>
+      </button>`
+  }
+
+  return `
+    <section>
+      <h2>出發地點</h2>
+      ${option(0, '地表・奧斯城', '從深淵之淵的入口走下去。慢，但不用錢。', 0)}
+      ${bases
+        .map((b) => option(b.depth, `${b.name}　${formatDepth(b.depth)}`, b.desc, baseFee(b.depth)))
+        .join('')}
+      <p class="hint">從基地出發省下的是路途，不是代價 —— 回程仍然要穿越中間的每一層。</p>
+    </section>`
+}
+
 const SUPPLY_LABEL: Readonly<Record<SupplyKey, string>> = {
   food: '食物',
   water: '水',
@@ -218,6 +267,7 @@ const SUPPLY_LABEL: Readonly<Record<SupplyKey, string>> = {
 function supplyShop(meta: MetaState, selected: string[]): string {
   const keys = Object.keys(SUPPLY_LABEL) as SupplyKey[]
   const cost = loadoutCost(meta.loadout)
+  const spendable = meta.funds - departFee(meta)
   const weight = suppliesWeight(meta.loadout)
   const party = selected
     .map((id) => meta.roster.find((c) => c.id === id))
@@ -228,7 +278,7 @@ function supplyShop(meta: MetaState, selected: string[]): string {
   const rows = keys
     .map((k) => {
       const n = meta.loadout[k]
-      const canAdd = cost + SUPPLY_PRICE[k] <= meta.funds
+      const canAdd = cost + SUPPLY_PRICE[k] <= spendable
       return `
         <div class="buy">
           <span class="buy__name">${SUPPLY_LABEL[k]}<span class="buy__unit">${SUPPLY_PRICE[k]}／個</span></span>
@@ -502,10 +552,10 @@ export function renderTown(view: TownView): string {
   const expanded = view.expanded ?? null
 
   const available = availableMembers(meta)
-  const cost = loadoutCost(meta.loadout)
+  const cost = departCost(meta)
   const affordable = cost <= meta.funds
   const canDepart = selected.length > 0 && selected.length <= PARTY_SIZE && affordable
-  const departWhy = selected.length === 0 ? '還沒有決定誰要下去' : '買不起這批補給'
+  const departWhy = selected.length === 0 ? '還沒有決定誰要下去' : '付不起這趟的花費'
 
   const pairs = selected
     .flatMap((a, i) =>
@@ -543,11 +593,18 @@ export function renderTown(view: TownView): string {
 
   const supplyPage = `
     ${supplyShop(meta, selected)}
+    ${departurePicker(meta)}
     <section>
       <div class="actions">
         <button class="action" data-tab="party" type="button">回到隊伍</button>
         <button class="action action--key" data-depart="1" type="button" ${canDepart ? '' : 'disabled'}>
-          ${canDepart ? `出發下潛（${selected.length} 人・補給 ${cost}）` : '出發下潛'}
+          ${
+            canDepart
+              ? `出發下潛（${selected.length} 人・共 ${cost}${
+                  meta.departDepth > 0 ? `・自 ${esc(formatDepth(meta.departDepth))}` : ''
+                }）`
+              : '出發下潛'
+          }
           ${canDepart ? '' : `<span class="action__why">${departWhy}</span>`}
         </button>
       </div>

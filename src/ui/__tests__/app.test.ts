@@ -326,7 +326,7 @@ describe('補給商', () => {
 
     const depart = root.querySelector('[data-depart]')!
     expect(depart.hasAttribute('disabled')).toBe(true)
-    expect(depart.querySelector('.action__why')?.textContent).toContain('買不起')
+    expect(depart.querySelector('.action__why')?.textContent).toContain('付不起')
   })
 })
 

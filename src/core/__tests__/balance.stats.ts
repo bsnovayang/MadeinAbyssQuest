@@ -4,6 +4,7 @@
  */
 import { formatDepth, layerAt } from '../depth'
 import { generateQuest } from '../quests'
+import { baseFee } from '../../data/bases'
 import {
   clampLoadoutToFunds,
   availableMembers,
@@ -65,8 +66,8 @@ function greedyRun(seed: string) {
 }
 
 /** 下潛到指定深度就折返，途中會紮營 */
-function prudentRun(seed: string, turnAt: number) {
-  const s = createRun(seed)
+function prudentRun(seed: string, turnAt: number, startDepth = 0) {
+  const s = createRun(seed, { startDepth })
   let guard = 0
 
   while (!s.over && s.depth < turnAt && guard++ < 300) {
@@ -205,6 +206,29 @@ for (const turnAt of [1600, 2800, 4500, 7500, 10000, 12500]) {
       `${(rate * 100).toFixed(0).padStart(5)}%  ${loot.toFixed(0).padStart(7)}  ` +
       `${reward.toFixed(0).padStart(8)}  ${(rate * (loot + reward)).toFixed(0).padStart(10)}  ` +
       `${(rate * loot).toFixed(0).padStart(12)}`,
+  )
+}
+
+console.log('\n── 前線基地會不會讓深層變得太簡單（M4c）──')
+console.log('折返深度   從地表出發  從基地出發  基地深度  維護費')
+for (const [turnAt, base] of [
+  [4500, 2600],
+  [7500, 2600],
+  [7500, 7000],
+  [10000, 7000],
+  [12500, 7000],
+  [12500, 12000],
+] as const) {
+  const ground = Array.from({ length: N }, (_, i) => prudentRun(`b0-${turnAt}-${i}`, turnAt))
+  const fromBase = Array.from({ length: N }, (_, i) =>
+    prudentRun(`b1-${turnAt}-${base}-${i}`, turnAt, base),
+  )
+  const rate = (rs: { survived: boolean }[]) => rs.filter((r) => r.survived).length / rs.length
+
+  console.log(
+    `${formatDepth(turnAt).padStart(8)}  ${(rate(ground) * 100).toFixed(0).padStart(9)}%  ` +
+      `${(rate(fromBase) * 100).toFixed(0).padStart(9)}%  ` +
+      `${formatDepth(base).padStart(8)}  ${String(baseFee(base)).padStart(6)}`,
   )
 }
 

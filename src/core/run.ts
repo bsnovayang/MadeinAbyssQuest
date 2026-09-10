@@ -30,18 +30,22 @@ export interface RunOptions {
   party?: Character[]
   echoes?: LostSoul[]
   supplies?: Supplies
+  /** 從前線基地出發時的起始深度（企劃書 6-4）。0 = 從地表走下去 */
+  startDepth?: number
 }
 
 export function createRun(seed: string, options: RunOptions = {}): RunState {
   const rngState = hashSeed(seed)
-  const [entrance, s1] = makeNode(rngState, 0, 0, 'rest')
-  const gen = generateChoices(s1, 1, 0, 'down')
+  const start = Math.max(0, options.startDepth ?? 0)
+  const [entrance, s1] = makeNode(rngState, 0, start, 'rest')
+  const gen = generateChoices(s1, 1, start, 'down')
 
   const state: RunState = {
     seed,
     rngState: gen.rngState,
-    depth: 0,
-    maxDepthReached: 0,
+    depth: start,
+    // 從基地出發也要從那個深度爬回地表，代價一分不少
+    maxDepthReached: start,
     direction: 'down',
     party: options.party ?? startingParty(),
     echoes: options.echoes ?? [],
@@ -60,7 +64,13 @@ export function createRun(seed: string, options: RunOptions = {}): RunState {
     endReason: null,
   }
 
-  push(state, '深淵之淵的入口。從這裡開始，往下都是自由的。', 'warm')
+  push(
+    state,
+    start > 0
+      ? `從前線基地重新出發。上面那幾層已經走過了，但回去的時候一層也少不了。`
+      : '深淵之淵的入口。從這裡開始，往下都是自由的。',
+    start > 0 ? 'cold' : 'warm',
+  )
   return state
 }
 
@@ -316,9 +326,15 @@ export function camp(state: RunState): void {
   state.supplies.food = Math.max(0, state.supplies.food - campFoodCost(state))
   state.daysElapsed += 1
 
+  // 上升負荷不是疲勞，睡一覺治不好它。
+  // 歸途上紮營只能養傷，耐受度只有藥品與娜娜奇那類能力救得回來。
+  const restoresTolerance = state.direction === 'down'
+
   for (const c of aliveMembers(state)) {
     c.hp = Math.min(c.maxHp, c.hp + Math.ceil(c.maxHp * 0.3))
-    c.tolerance = Math.min(c.maxTolerance, c.tolerance + 4 + behaviors.camp)
+    if (restoresTolerance) {
+      c.tolerance = Math.min(c.maxTolerance, c.tolerance + 4 + behaviors.camp)
+    }
   }
 
   if (state.exhaustion > 0) state.exhaustion = Math.max(0, state.exhaustion - 1)
@@ -327,6 +343,10 @@ export function camp(state: RunState): void {
   const [line, s] = pick(state.rngState, lines)
   state.rngState = s
   push(state, line, 'warm')
+
+  if (!restoresTolerance) {
+    push(state, '傷口好了一些。但那份沉重不會因為睡一覺就消失。', 'cold')
+  }
 }
 
 export function dropItem(state: RunState, itemId: string): void {

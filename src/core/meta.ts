@@ -12,6 +12,7 @@ import { COMMON_TRAITS } from './traits'
 import type { Character, LostSoul, MemorialEntry, RunState, Supplies, SupplyKey } from './types'
 import { RECRUIT_BIOS } from '../data/bios'
 import { RECRUIT_NAMES } from '../data/names'
+import { baseFee, BASES, type BaseDef } from '../data/bases'
 import { RANKS, rankAt, type RankDef } from '../data/ranks'
 import { startingParty, startingSupplies } from '../data/party'
 
@@ -23,6 +24,10 @@ export interface MetaState {
   applicants: Character[]
   /** 下一趟要帶的補給。出發時才付錢 */
   loadout: Supplies
+  /** 已解鎖的前線基地所在層 */
+  bases: number[]
+  /** 下一趟的出發深度。0 = 從地表走下去 */
+  departDepth: number
   funds: number
   /** 地表的日期。委託期限與休養都靠它推進 */
   day: number
@@ -86,7 +91,8 @@ export function guildSubsidy(meta: MetaState): boolean {
 export function adjustLoadout(meta: MetaState, key: SupplyKey, delta: number): void {
   const next = Math.max(0, Math.min(99, meta.loadout[key] + delta))
   const candidate = { ...meta.loadout, [key]: next }
-  if (delta > 0 && loadoutCost(candidate) > meta.funds) return
+  // 基地維護費也算在這一趟的花費裡
+  if (delta > 0 && loadoutCost(candidate) + departFee(meta) > meta.funds) return
   meta.loadout[key] = next
 }
 
@@ -97,6 +103,8 @@ export function createMeta(rngState = 20260910): MetaState {
     lostSouls: [],
     applicants: [],
     loadout: startingSupplies(),
+    bases: [],
+    departDepth: 0,
     // 第一趟的本錢。之後就得自己賺
     funds: 700,
     day: 1,
@@ -129,6 +137,8 @@ export function normalizeMeta(meta: MetaState): MetaState {
   meta.questsCompleted ??= 0
   meta.quests ??= []
   meta.nextQuestId ??= 1
+  meta.bases ??= []
+  meta.departDepth ??= 0
   for (const c of [...meta.roster, ...meta.applicants]) {
     c.afflictions ??= []
     c.traits ??= []
@@ -168,6 +178,49 @@ export function promote(meta: MetaState): RankDef | null {
 
 export function rosterCap(meta: MetaState): number {
   return currentRank(meta).rosterCap
+}
+
+// ─── 前線基地 ────────────────────────────────────────────────
+
+export function unlockedBases(meta: MetaState): BaseDef[] {
+  return BASES.filter((b) => meta.bases.includes(b.layer))
+}
+
+/**
+ * 基地不是打下來的，是活著回來換的。
+ *
+ * 抵達某一層並且回到地表，那一層的基地就開放 ——
+ * 在這個遊戲裡，「回得來」本身就是最難的成就。
+ */
+export function unlockBases(meta: MetaState, maxDepthReached: number): BaseDef[] {
+  const opened: BaseDef[] = []
+  for (const base of BASES) {
+    if (meta.bases.includes(base.layer)) continue
+    if (maxDepthReached < base.depth) continue
+    meta.bases.push(base.layer)
+    opened.push(base)
+  }
+  return opened
+}
+
+/** 從基地出發要付的維護費。從地表走下去永遠免費 */
+export function departFee(meta: MetaState): number {
+  return meta.departDepth > 0 ? baseFee(meta.departDepth) : 0
+}
+
+export function setDepartDepth(meta: MetaState, depth: number): void {
+  if (depth === 0) {
+    meta.departDepth = 0
+    return
+  }
+  const base = BASES.find((b) => b.depth === depth)
+  if (!base || !meta.bases.includes(base.layer)) return
+  meta.departDepth = depth
+}
+
+/** 出發的總花費：補給加上基地維護費 */
+export function departCost(meta: MetaState): number {
+  return loadoutCost(meta.loadout) + departFee(meta)
 }
 
 // ─── 時間與休養 ──────────────────────────────────────────────
@@ -302,6 +355,8 @@ export interface RunSummary {
   questsFailed: string[]
   daysSpent: number
   promoted: string | null
+  /** 這一趟開放的前線基地 */
+  basesOpened: string[]
   survivors: string[]
   dead: string[]
   lost: string[]
@@ -323,6 +378,7 @@ export function concludeRun(meta: MetaState, run: RunState): RunSummary {
     questsFailed: [],
     daysSpent: 0,
     promoted: null,
+    basesOpened: [],
     survivors: [],
     dead: [],
     lost: [],
@@ -415,6 +471,12 @@ export function concludeRun(meta: MetaState, run: RunState): RunSummary {
         entry.afflictions.push(affliction)
         summary.newAfflictions.push({ name: s.name, affliction })
       }
+    }
+  }
+
+  if (surfaced) {
+    for (const base of unlockBases(meta, run.maxDepthReached)) {
+      summary.basesOpened.push(base.name)
     }
   }
 
@@ -536,10 +598,12 @@ export function replenish(meta: MetaState): Character[] {
 export function clampLoadoutToFunds(meta: MetaState): void {
   const order: SupplyKey[] = ['medicine', 'rope', 'food', 'water']
   for (const key of order) {
-    while (loadoutCost(meta.loadout) > meta.funds && meta.loadout[key] > 0) {
+    while (departCost(meta) > meta.funds && meta.loadout[key] > 0) {
       meta.loadout[key] -= 1
     }
   }
+  // 連最低配給都付不起，就只好從地表走下去
+  if (departCost(meta) > meta.funds) meta.departDepth = 0
 }
 
 /** 孤兒院永遠會給你新的孩子（企劃書 11-7）。免費補人用，不經過孤兒院名額 */

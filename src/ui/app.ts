@@ -4,14 +4,16 @@ import {
   activeQuests,
   adjustLoadout,
   advanceDays,
+  clampLoadoutToFunds,
   concludeRun,
+  departCost,
   createMeta,
   deployParty,
   hire,
-  loadoutCost,
   normalizeMeta,
   PARTY_SIZE,
   replenish,
+  setDepartDepth,
   takeQuest,
   type MetaState,
   type RunSummary,
@@ -233,7 +235,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     const party = deployParty(meta, selected)
     if (party.length === 0) return
 
-    const cost = loadoutCost(meta.loadout)
+    const cost = departCost(meta)
     if (cost > meta.funds) return
     meta.funds -= cost
 
@@ -241,6 +243,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       party,
       echoes: meta.lostSouls,
       supplies: meta.loadout,
+      startDepth: meta.departDepth,
     })
     summary = null
     audio.reset()
@@ -361,6 +364,14 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
 
     if (d.hire) {
       if (!hire(meta, d.hire)) return
+      paint()
+      persist()
+      return
+    }
+
+    if (d.departAt) {
+      setDepartDepth(meta, Number(d.departAt))
+      clampLoadoutToFunds(meta)
       paint()
       persist()
       return

@@ -4,6 +4,7 @@ import { retreat } from '../depth'
 import {
   aliveMembers,
   beginAscent,
+  camp,
   createRun,
   escapeRelics,
   moveTo,
@@ -96,6 +97,35 @@ describe('ascent', () => {
     const shallowLoss = 10 - shallow.party.find((c) => c.id === 'riko')!.tolerance
     const deepLoss = 10 - deep.party.find((c) => c.id === 'riko')!.tolerance
     expect(deepLoss).toBeGreaterThan(shallowLoss)
+  })
+
+  /**
+   * 沒有這條規則，玩家可以一路紮營把負荷睡掉，
+   * 實測會讓五層的生還率從 41% 暴增到 78%。
+   */
+  it('歸途紮營只能養傷，治不好上升負荷', () => {
+    const s = planted('camp-ascent', 5000)
+    s.current = { id: 'r', kind: 'rest', depth: 5000, label: '營地' }
+    beginAscent(s)
+    s.current = { id: 'r', kind: 'rest', depth: 5000, label: '營地' }
+
+    const riko = s.party.find((c) => c.id === 'riko')!
+    riko.hp = 5
+    riko.tolerance = 4
+
+    camp(s)
+    expect(riko.hp).toBeGreaterThan(5) // 傷有好
+    expect(riko.tolerance).toBe(4) // 但那份沉重還在
+  })
+
+  it('往下的時候紮營仍然恢復耐受度', () => {
+    const s = planted('camp-descent', 5000)
+    s.current = { id: 'r', kind: 'rest', depth: 5000, label: '營地' }
+    const riko = s.party.find((c) => c.id === 'riko')!
+    riko.tolerance = 4
+
+    camp(s)
+    expect(riko.tolerance).toBeGreaterThan(4)
   })
 
   it('藥品可以恢復耐受度', () => {
