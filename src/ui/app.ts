@@ -35,7 +35,7 @@ import {
 } from '../core/run'
 import { describeProgress } from '../core/quests'
 import type { RunState, SupplyKey } from '../core/types'
-import { render, type HpDeltas } from './render'
+import { decayOf, render, type HpDeltas } from './render'
 import type { SaveData } from './storage'
 import { renderTown, type TownTab } from './town'
 
@@ -163,7 +163,10 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       root.innerHTML = render(run, { deltas, muted: audio.isMuted(), quests, target: battleTarget })
       root.classList.toggle('mood--ascent', run.direction === 'up' && !run.over)
       root.classList.toggle('mood--warm', run.endReason === 'surfaced')
+      // 筆記本隨深度劣化（企劃書 15-3）
+      root.dataset.decay = String(decayOf(run))
     } else {
+      delete root.dataset.decay
       root.innerHTML = renderTown({
         meta,
         selected,

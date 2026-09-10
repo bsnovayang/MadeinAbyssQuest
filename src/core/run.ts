@@ -9,6 +9,7 @@ import {
 import { distributeBurden, hasWardRelic, tierFor } from './curse'
 import { layerAt, valueMultiplier, waterCostAt } from './depth'
 import { generateChoices, makeNode } from './map'
+import { phantomChance, PHANTOM_ENTRIES } from './perception'
 import { hashSeed, nextInt, pick } from './rng'
 import { partyBehaviors } from './traits'
 import type {
@@ -184,7 +185,16 @@ export function moveTo(state: RunState, nodeId: string): void {
   const toLayer = layerAt(state.depth).id
   if (toLayer !== fromLayer) {
     push(state, `已進入第${toLayer}層　${layerAt(state.depth).name}。`, 'cold')
+    // 玩家有權知道自己的儀表開始不可靠，恐怖不該被誤認成 bug
+    if (toLayer === 4 && fromLayer < 4) {
+      push(state, '筆記上的字開始抖。從這裡開始，數字不一定準。', 'grim')
+    }
+    if (toLayer === 5 && fromLayer < 5) {
+      push(state, '有些條目不是自己寫的。不要相信這本筆記。', 'grim')
+    }
   }
+
+  spawnPhantom(state)
 
   spendWater(state, waterCostAt(state.depth) + extraWaterCost(enc))
 
@@ -649,6 +659,20 @@ function addItem(state: RunState, item: Omit<Item, 'id'>): void {
     value: Math.round(item.value * valueMultiplier(state.depth)),
     id: `i${state.nextNodeId}-${state.carried.length}`,
   })
+}
+
+/** 五層以下，筆記本上會出現不是自己寫的條目（企劃書 15-3） */
+function spawnPhantom(state: RunState): void {
+  const chance = phantomChance(state.depth)
+  if (chance <= 0) return
+
+  const [r, s1] = nextInt(state.rngState, 1, 100)
+  state.rngState = s1
+  if (r > chance) return
+
+  const [line, s2] = pick(state.rngState, PHANTOM_ENTRIES)
+  state.rngState = s2
+  push(state, line, 'grim')
 }
 
 function push(state: RunState, text: string, tone: LogTone): void {

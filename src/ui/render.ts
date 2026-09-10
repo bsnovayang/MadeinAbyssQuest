@@ -9,6 +9,8 @@ import {
   loadOf,
   totalValue,
 } from '../core/run'
+import { decayStage, distort, reliabilityAt } from '../core/perception'
+import { hashSeed } from '../core/rng'
 import { partyBehaviors } from '../core/traits'
 import { renderBattle } from './battle'
 import type { NodeKind, RunState, Supplies } from '../core/types'
@@ -93,6 +95,8 @@ function forecastLabel(steps: number): string {
 
 function party(state: RunState, ui: UiState): string {
   const up = state.direction === 'up'
+  // 深層說謊的只有顯示，真實狀態永遠是對的（企劃書 16-5）
+  const trust = reliabilityAt(state.depth)
   const fc = up ? forecast(state) : {}
   const share = up ? distributeBurden(state) : {}
   const canWard = hasWardRelic(state)
@@ -100,14 +104,15 @@ function party(state: RunState, ui: UiState): string {
   const rows = state.party
     .map((c) => {
       const gone = c.status !== 'alive'
-      const pct = c.maxHp > 0 ? (c.hp / c.maxHp) * 100 : 0
+      const shownHp = distort(c.hp, trust, `${c.id}:${c.hp}:${state.depth}`)
+      const pct = c.maxHp > 0 ? (shownHp / c.maxHp) * 100 : 0
       const tPct = c.maxTolerance > 0 ? (c.tolerance / c.maxTolerance) * 100 : 0
       const delta = ui.deltas[c.id] ?? 0
 
       const hpText =
         delta !== 0 && !gone
-          ? `<s>${c.hp + delta}</s><span class="changed ${delta > 0 ? 'changed--up' : ''}">${c.hp}</span> / ${c.maxHp}`
-          : `${c.hp} / ${c.maxHp}`
+          ? `<s>${c.hp + delta}</s><span class="changed ${delta > 0 ? 'changed--up' : ''}">${shownHp}</span> / ${c.maxHp}`
+          : `${shownHp} / ${c.maxHp}`
 
       const statusNote =
         c.status === 'lost'
@@ -290,13 +295,28 @@ function actions(state: RunState, ui: UiState): string {
    * 「濃重的獸臭」本來就在告訴你那是什麼，只是沒有人替你寫下標籤（企劃書 14 章）。
    */
   const survey = partyBehaviors(state.party).survey
+  const trust = reliabilityAt(state.depth)
+
+  /**
+   * 標籤是「判讀」，會出錯；描述是「所見」，永遠誠實。
+   * 因此深層的情報會說謊（企劃書 14-4），但玩家仍有判斷的依據。
+   */
+  const kindLabel = (n: (typeof state.choices)[number]): string => {
+    if (!survey) return '？'
+    if (trust >= 1) return KIND_LABEL[n.kind]
+    const misread = hashSeed(`read:${n.id}:${n.depth}`) % 100 < (1 - trust) * 55
+    if (!misread) return KIND_LABEL[n.kind]
+    const kinds = Object.keys(KIND_LABEL) as NodeKind[]
+    const wrong = kinds[hashSeed(`wrong:${n.id}`) % kinds.length] as NodeKind
+    return KIND_LABEL[wrong]
+  }
 
   const buttons = state.choices
     .map(
       (n) => `
         <button class="choice" data-node="${esc(n.id)}" type="button" ${blocked ? 'disabled' : ''}>
           <span class="choice__kind ${survey ? '' : 'choice__kind--unknown'}">
-            ${survey ? KIND_LABEL[n.kind] : '？'}
+            ${kindLabel(n)}
           </span>
           ${esc(n.label)}
         </button>`,
@@ -375,6 +395,10 @@ function log(state: RunState): string {
     .join('')
 
   return `<section><h2>探窟筆記</h2><ul class="log">${entries}</ul></section>`
+}
+
+export function decayOf(state: RunState): number {
+  return decayStage(state.depth)
 }
 
 export function render(state: RunState, ui: UiState): string {

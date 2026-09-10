@@ -449,6 +449,104 @@ h2 {
   color: var(--ink-faint);
 }
 
+/* ══ 筆記本隨深度劣化（企劃書 15-3）══════════════════════════
+ *
+ * 深層的恐怖不是敵人變強了，是你手上這本筆記開始壞掉。
+ * 一到二層完全乾淨 —— 沒有前面的整潔，後面的崩壞就不成立。
+ */
+
+#app[data-decay='3'] .log__text {
+  letter-spacing: 0.02em;
+}
+
+#app[data-decay='3'] .log__entry:nth-child(4n) .log__text {
+  transform: rotate(-0.25deg);
+  display: inline-block;
+}
+
+/* 四層：字跡顫抖、紙面出現污漬 */
+#app[data-decay='4'] {
+  --paper: #eee7d4;
+}
+
+#app[data-decay='4'] .log__entry:nth-child(3n) .log__text {
+  transform: rotate(0.4deg) translateY(0.5px);
+  display: inline-block;
+}
+
+#app[data-decay='4'] .log__entry:nth-child(5n) .log__text {
+  text-decoration: line-through;
+  text-decoration-color: rgba(163, 61, 42, 0.5);
+  opacity: 0.75;
+}
+
+#app[data-decay='4']::after,
+#app[data-decay='5']::after,
+#app[data-decay='6']::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  background:
+    radial-gradient(circle at 18% 24%, rgba(120, 40, 28, 0.09), transparent 12%),
+    radial-gradient(circle at 76% 61%, rgba(120, 40, 28, 0.07), transparent 9%),
+    radial-gradient(circle at 44% 88%, rgba(90, 70, 40, 0.08), transparent 14%);
+}
+
+/* 五層：字越寫越歪，開始有讀不出來的行 */
+#app[data-decay='5'] {
+  --paper: #e9e2ce;
+  --rule: #d5cdb6;
+}
+
+#app[data-decay='5'] .log__entry:nth-child(2n) .log__text {
+  transform: rotate(-0.7deg) translateX(1px);
+  display: inline-block;
+}
+
+#app[data-decay='5'] .log__entry:nth-child(7n) .log__text {
+  filter: blur(0.6px);
+  opacity: 0.7;
+}
+
+#app[data-decay='5'] .log__depth {
+  opacity: 0.4;
+}
+
+/* 六層：已經不是莉可的筆跡了 */
+#app[data-decay='6'] {
+  --paper: #e2dcc9;
+  --ink: #4a4034;
+  --rule: #cfc7b0;
+}
+
+#app[data-decay='6'] .log__entry .log__text {
+  transform: rotate(-1deg) translateX(2px);
+  display: inline-block;
+  letter-spacing: 0.06em;
+}
+
+#app[data-decay='6'] .log__entry:nth-child(3n) .log__text {
+  filter: blur(1px);
+  opacity: 0.55;
+}
+
+#app[data-decay='6'] .log__depth {
+  opacity: 0.15;
+}
+
+#app[data-decay='6'] .member__note,
+#app[data-decay='6'] .fc {
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #app[data-decay] .log__text {
+    transform: none;
+  }
+}
+
 /* ══ 撤離：暖度抽離，但絕不轉成 grimdark（企劃書 15-1）══════ */
 
 #app {
