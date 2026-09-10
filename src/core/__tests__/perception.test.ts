@@ -4,7 +4,11 @@ import { createMeta, deployParty } from '../meta'
 import { createRun, moveTo } from '../run'
 import { render } from '../../ui/render'
 
-const ui = { deltas: {}, muted: true }
+const ui = {
+  deltas: {},
+  muted: true,
+  panels: { explicit: { party: true, notes: true } },
+}
 
 describe('可靠度', () => {
   it('前三層完全可信 —— 沒有前面的整潔，後面的崩壞就不成立', () => {

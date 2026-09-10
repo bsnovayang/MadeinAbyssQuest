@@ -1,5 +1,7 @@
 import { distributeBurden, forecast, hasWardRelic, tierFor } from '../core/curse'
 import { formatDepth, layerAt } from '../core/depth'
+import { decayStage, distort, reliabilityAt } from '../core/perception'
+import { hashSeed } from '../core/rng'
 import {
   canCamp,
   canMove,
@@ -9,13 +11,17 @@ import {
   loadOf,
   totalValue,
 } from '../core/run'
-import { decayStage, distort, reliabilityAt } from '../core/perception'
-import { hashSeed } from '../core/rng'
 import { partyBehaviors } from '../core/traits'
-import { renderBattle } from './battle'
 import type { NodeKind, RunState, Supplies } from '../core/types'
 import { capacityOf } from '../core/weight'
 import { relicById } from '../data/relics'
+import { renderBattle } from './battle'
+import {
+  createPanelState,
+  isPanelOpen,
+  panel,
+  type PanelState,
+} from './panels'
 
 export type HpDeltas = Record<string, number>
 
@@ -26,6 +32,7 @@ export interface UiState {
   quests?: { title: string; progress: string }[]
   /** 戰鬥中選定的目標 */
   target?: string | null
+  panels?: PanelState
 }
 
 const KIND_LABEL: Readonly<Record<NodeKind, string>> = {
@@ -53,14 +60,56 @@ function esc(s: string): string {
   )
 }
 
-// ─── 深度計 ──────────────────────────────────────────────────
+// ─── 狀態列：唯一永遠看得見的東西 ────────────────────────────
 
-function depthBar(state: RunState, ui: UiState): string {
+/**
+ * 只有「快要害死人」的事情才有資格常駐畫面。
+ * 其餘一律收進面板 —— 捲動找不到選項就是設計失敗。
+ */
+function alerts(state: RunState): string[] {
+  const out: string[] = []
+  const enc = encumbranceOfRun(state)
+
+  if (enc === 'critical') out.push('背得太重，一步也走不動')
+  else if (enc === 'over') out.push('超重，耗水加快')
+
+  if (state.exhaustion > 0) out.push(`力竭 ${state.exhaustion}`)
+
+  if (state.direction === 'up') {
+    const fc = forecast(state)
+    for (const c of state.party) {
+      if (c.status !== 'alive') continue
+      const steps = fc[c.id]
+      if (steps === undefined || !Number.isFinite(steps)) continue
+      if (steps <= 1) out.push(`☠ ${c.name}　下一個節點撐不住`)
+      else if (steps <= 3) out.push(`⚠ ${c.name}　${steps} 節點後危險`)
+    }
+  }
+
+  for (const c of state.party) {
+    if (c.status === 'alive' && c.hp <= c.maxHp * 0.25) {
+      out.push(`${c.name}　傷得很重`)
+    }
+  }
+
+  return out
+}
+
+function statusBar(state: RunState, ui: UiState): string {
   const layer = layerAt(state.depth)
   const span = layer.to === Infinity ? layer.step * 10 : layer.to - layer.from
   const progress = Math.min(100, Math.max(0, ((state.depth - layer.from) / span) * 100))
   const up = state.direction === 'up'
-  const tier = tierFor(state.depth)
+  const trust = reliabilityAt(state.depth)
+
+  const alive = state.party.filter((c) => c.status === 'alive')
+  const hp = alive.reduce((a, c) => a + distort(c.hp, trust, `${c.id}:${c.hp}:${state.depth}`), 0)
+  const maxHp = alive.reduce((a, c) => a + c.maxHp, 0)
+  const load = loadOf(state)
+  const cap = capacityOf(state.party)
+  const enc = encumbranceOfRun(state)
+
+  const warnings = alerts(state)
 
   return `
     <div class="depth-bar">
@@ -76,15 +125,25 @@ function depthBar(state: RunState, ui: UiState): string {
       <div class="depth-bar__track">
         <div class="depth-bar__fill" style="width:${progress.toFixed(1)}%"></div>
       </div>
+      <div class="vitals">
+        <span>${alive.length} 人　${hp}/${maxHp}</span>
+        <span>水 ${state.supplies.water}　食 ${state.supplies.food}　繩 ${state.supplies.rope}　藥 ${state.supplies.medicine}</span>
+        <span class="vitals__load vitals__load--${enc}">${load.toFixed(0)}/${cap}kg</span>
+      </div>
       ${
         up
-          ? `<div class="depth-bar__curse">歸途　最深抵達 ${esc(formatDepth(state.maxDepthReached))}　·　${esc(tier.name)}</div>`
+          ? `<div class="depth-bar__curse">歸途　${esc(tierFor(state.depth).name)}</div>`
+          : ''
+      }
+      ${
+        warnings.length
+          ? `<div class="alerts">${warnings.map((w) => `<span class="alert">${esc(w)}</span>`).join('')}</div>`
           : ''
       }
     </div>`
 }
 
-// ─── 隊伍 ────────────────────────────────────────────────────
+// ─── 面板內容 ────────────────────────────────────────────────
 
 function forecastLabel(steps: number): string {
   if (!Number.isFinite(steps)) return '<span class="fc fc--safe">機械之軀</span>'
@@ -93,15 +152,14 @@ function forecastLabel(steps: number): string {
   return `<span class="fc">還能撐 ${steps} 節點</span>`
 }
 
-function party(state: RunState, ui: UiState): string {
+function partyBody(state: RunState, ui: UiState): string {
   const up = state.direction === 'up'
-  // 深層說謊的只有顯示，真實狀態永遠是對的（企劃書 16-5）
   const trust = reliabilityAt(state.depth)
   const fc = up ? forecast(state) : {}
   const share = up ? distributeBurden(state) : {}
   const canWard = hasWardRelic(state)
 
-  const rows = state.party
+  return state.party
     .map((c) => {
       const gone = c.status !== 'alive'
       const shownHp = distort(c.hp, trust, `${c.id}:${c.hp}:${state.depth}`)
@@ -161,25 +219,10 @@ function party(state: RunState, ui: UiState): string {
         </div>`
     })
     .join('')
-
-  const burdenRow =
-    up && canWard
-      ? `<div class="burden">
-           承受方式
-           <button class="ward ${state.burden.mode === 'spread' ? 'ward--on' : ''}" data-burden="spread" type="button">平均分攤</button>
-           <span class="burden__hint">避咒之籠：可指定一人扛下全部</span>
-         </div>`
-      : ''
-
-  return `<section><h2>隊伍</h2>${rows}${burdenRow}</section>`
 }
 
-// ─── 補給 ────────────────────────────────────────────────────
-
-function supplies(state: RunState): string {
+function supplyBody(state: RunState): string {
   const keys = Object.keys(SUPPLY_LABEL) as (keyof Supplies)[]
-  const load = loadOf(state)
-  const cap = capacityOf(state.party)
   const enc = encumbranceOfRun(state)
   const canShed = enc !== 'normal'
 
@@ -198,8 +241,6 @@ function supplies(state: RunState): string {
         </div>`
     })
     .join('')
-
-  const encNote = enc === 'critical' ? '　動彈不得' : enc === 'over' ? '　超重・耗水加快' : ''
 
   const items = state.carried
     .map((i) => {
@@ -223,16 +264,62 @@ function supplies(state: RunState): string {
     .join('')
 
   return `
-    <section>
-      <h2>補給</h2>
-      <div class="stats">${stats}</div>
-      <div class="load load--${enc}">負重　${load.toFixed(1)} / ${cap} kg${encNote}</div>
-      ${items ? `<ul class="carried">${items}</ul>` : ''}
-      ${state.exhaustion > 0 ? `<div class="load load--critical">力竭　${state.exhaustion}</div>` : ''}
-    </section>`
+    <div class="stats">${stats}</div>
+    ${items ? `<ul class="carried">${items}</ul>` : '<p class="hint">背上什麼也沒有。</p>'}`
+}
+
+function questBody(ui: UiState): string {
+  const quests = ui.quests ?? []
+  if (quests.length === 0) return '<p class="hint">這一趟沒有接委託。</p>'
+
+  return `
+    <ul class="runquests">
+      ${quests
+        .map(
+          (q) => `
+            <li>
+              <span class="runquests__title">${esc(q.title)}</span>
+              <span class="runquests__progress">${esc(q.progress)}</span>
+            </li>`,
+        )
+        .join('')}
+    </ul>`
+}
+
+function notesBody(state: RunState): string {
+  return `
+    <ul class="log">
+      ${state.log
+        .slice(-60)
+        .reverse()
+        .map(
+          (e) => `
+            <li class="log__entry">
+              <span class="log__depth">${esc(formatDepth(e.depth))}</span>
+              <span class="log__text log__text--${e.tone}">${esc(e.text)}</span>
+            </li>`,
+        )
+        .join('')}
+    </ul>`
 }
 
 // ─── 行動 ────────────────────────────────────────────────────
+
+function reasonWhy(reason: string | null): string {
+  return reason ? `<span class="action__why">${esc(reason)}</span>` : ''
+}
+
+function campBlockedBy(state: RunState): string | null {
+  if (state.current.kind !== 'rest') return '這裡沒有地方生火'
+  if (state.supplies.food < 1) return '沒有食物了'
+  return null
+}
+
+function anchorBlockedBy(state: RunState): string | null {
+  if (state.current.kind !== 'anchor') return '這裡沒有升降裝置'
+  if (state.supplies.rope < 1) return '沒有繩索了'
+  return null
+}
 
 function ended(state: RunState): string {
   const survived = state.party.filter((c) => c.status === 'alive')
@@ -262,38 +349,9 @@ function ended(state: RunState): string {
     </div>`
 }
 
-/**
- * 停用的按鈕一定要說出原因。
- * 沒有原因的停用按鈕是死路 —— 玩家分不出那是壞掉還是刻意的。
- */
-function reasonWhy(reason: string | null): string {
-  return reason ? `<span class="action__why">${esc(reason)}</span>` : ''
-}
-
-function campBlockedBy(state: RunState): string | null {
-  if (state.current.kind !== 'rest') return '這裡沒有地方生火'
-  if (state.supplies.food < 1) return '沒有食物了'
-  return null
-}
-
-function anchorBlockedBy(state: RunState): string | null {
-  if (state.current.kind !== 'anchor') return '這裡沒有升降裝置'
-  if (state.supplies.rope < 1) return '沒有繩索了'
-  return null
-}
-
-function actions(state: RunState, ui: UiState): string {
-  if (state.over) return ended(state)
-  // 打起來的時候，探索的一切都要等
-  if (state.battle) return renderBattle(state.battle, ui.target ?? null, state.supplies.medicine)
-
+function actions(state: RunState): string {
   const up = state.direction === 'up'
   const blocked = !canMove(state)
-
-  /**
-   * 沒有測繪的人，就只有筆記上的描述可以判斷 ——
-   * 「濃重的獸臭」本來就在告訴你那是什麼，只是沒有人替你寫下標籤（企劃書 14 章）。
-   */
   const survey = partyBehaviors(state.party).survey
   const trust = reliabilityAt(state.depth)
 
@@ -315,9 +373,7 @@ function actions(state: RunState, ui: UiState): string {
     .map(
       (n) => `
         <button class="choice" data-node="${esc(n.id)}" type="button" ${blocked ? 'disabled' : ''}>
-          <span class="choice__kind ${survey ? '' : 'choice__kind--unknown'}">
-            ${kindLabel(n)}
-          </span>
+          <span class="choice__kind ${survey ? '' : 'choice__kind--unknown'}">${kindLabel(n)}</span>
           ${esc(n.label)}
         </button>`,
     )
@@ -330,24 +386,23 @@ function actions(state: RunState, ui: UiState): string {
       return `
         <button class="relic" data-relic="${esc(i.id)}" type="button">
           <span class="relic__name">${esc(def.name)}</span>
-          <span class="relic__effect">${esc(def.effect)}</span>
           <span class="relic__cost">代價　${esc(def.cost)}</span>
         </button>`
     })
     .join('')
 
   return `
-    <section>
+    <section class="deck">
       <h2>${up ? '往上' : '往下'}</h2>
       <div class="choices">${buttons}</div>
       ${blocked ? '<p class="hint">背得太重了，一步也走不動。先丟掉一些東西。</p>' : ''}
       <div class="actions">
         <button class="action" data-camp="1" type="button" ${canCamp(state) ? '' : 'disabled'}>
-          紮營（食物 −1）
+          紮營
           ${reasonWhy(campBlockedBy(state))}
         </button>
         <button class="action" data-anchor="1" type="button" ${canUseAnchor(state) ? '' : 'disabled'}>
-          使用錨點・上升一層（繩索 −1）
+          錨點・上升一層
           ${reasonWhy(anchorBlockedBy(state))}
         </button>
         ${
@@ -356,64 +411,46 @@ function actions(state: RunState, ui: UiState): string {
             : `<button class="action action--key" data-ascent="1" type="button">開始撤離</button>`
         }
       </div>
-      ${relicButtons ? `<div class="relics"><h2>遺物脫離</h2>${relicButtons}</div>` : ''}
+      ${relicButtons ? `<div class="relics">${relicButtons}</div>` : ''}
     </section>`
 }
 
-/** 接了委託卻在探索中看不到，等於沒接 */
-function questPanel(ui: UiState): string {
-  const quests = ui.quests ?? []
-  if (quests.length === 0) return ''
-
-  return `
-    <section>
-      <h2>委託</h2>
-      <ul class="runquests">
-        ${quests
-          .map(
-            (q) => `
-              <li>
-                <span class="runquests__title">${esc(q.title)}</span>
-                <span class="runquests__progress">${esc(q.progress)}</span>
-              </li>`,
-          )
-          .join('')}
-      </ul>
-    </section>`
-}
-
-function log(state: RunState): string {
-  const entries = state.log
-    .slice(-40)
-    .map(
-      (e) => `
-        <li class="log__entry">
-          <span class="log__depth">${esc(formatDepth(e.depth))}</span>
-          <span class="log__text log__text--${e.tone}">${esc(e.text)}</span>
-        </li>`,
-    )
-    .join('')
-
-  return `<section><h2>探窟筆記</h2><ul class="log">${entries}</ul></section>`
-}
+// ─── 組裝 ────────────────────────────────────────────────────
 
 export function decayOf(state: RunState): number {
   return decayStage(state.depth)
 }
 
 export function render(state: RunState, ui: UiState): string {
+  const panels = ui.panels ?? createPanelState()
+
+  if (state.over) {
+    return `${statusBar(state, ui)}<div class="town-page">${ended(state)}</div>`
+  }
+
+  if (state.battle) {
+    return `
+      ${statusBar(state, ui)}
+      <div class="town-page">
+        ${renderBattle(state.battle, ui.target ?? null, state.supplies.medicine)}
+      </div>`
+  }
+
+  const up = state.direction === 'up'
+  const alive = state.party.filter((c) => c.status === 'alive').length
+  const questCount = ui.quests?.length ?? 0
+
+  // 撤離時預設攤開隊伍，因為用藥與轉嫁都在那裡
+  const open = (id: Parameters<typeof isPanelOpen>[1], fallback: boolean) =>
+    isPanelOpen(panels, id, fallback)
+
   return `
-    ${depthBar(state, ui)}
-    <div class="layout">
-      <div class="col-left">
-        ${party(state, ui)}
-        ${supplies(state)}
-        ${questPanel(ui)}
-      </div>
-      <div class="col-right">
-        ${actions(state, ui)}
-        ${state.battle ? '' : log(state)}
-      </div>
-    </div>
-    <div class="seed">seed: ${esc(state.seed)}</div>`
+    ${statusBar(state, ui)}
+    <div class="town-page">
+      ${actions(state)}
+      ${panel('party', '隊伍', `${alive} 人`, open('party', up), partyBody(state, ui))}
+      ${panel('supply', '補給與行李', `${state.carried.length} 件`, open('supply', false), supplyBody(state))}
+      ${questCount ? panel('quests', '委託', `${questCount}`, open('quests', false), questBody(ui)) : ''}
+      ${panel('notes', '探窟筆記', `${state.log.length}`, open('notes', false), notesBody(state))}
+    </div>`
 }

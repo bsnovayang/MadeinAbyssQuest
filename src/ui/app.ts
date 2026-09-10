@@ -35,7 +35,9 @@ import {
 } from '../core/run'
 import { describeProgress } from '../core/quests'
 import type { RunState, SupplyKey } from '../core/types'
+import { createPanelState, togglePanel, type PanelId } from './panels'
 import { decayOf, render, type HpDeltas } from './render'
+import { clearToasts, showToasts, type ToastLine } from './toast'
 import type { SaveData } from './storage'
 import { renderTown, type TownTab } from './town'
 
@@ -128,6 +130,17 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
   const audio = shielded(deps.audio ?? silentAudio)
   const pace = deps.pace ?? 1
 
+  // 提示活在重繪之外，因此展開面板不會讓它重播
+  const view = document.createElement('div')
+  const toasts = document.createElement('div')
+  toasts.className = 'toasts'
+  root.replaceChildren(view, toasts)
+
+  const panels = createPanelState()
+  let shownLogId = 0
+  let shownBattleLines = 0
+  let battleRef: unknown = null
+
   let meta: MetaState = createMeta()
   let run: RunState | null = null
   let summary: RunSummary | null = null
@@ -152,6 +165,30 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     }
   }
 
+  /** 取出上一次動作之後新增的訊息，交給提示層 */
+  function drainToasts(): ToastLine[] {
+    const out: ToastLine[] = []
+    if (!run) return out
+
+    if (run.battle !== battleRef) {
+      battleRef = run.battle
+      shownBattleLines = 0
+    }
+    if (run.battle) {
+      for (const line of run.battle.log.slice(shownBattleLines)) {
+        out.push({ text: line, tone: 'plain' })
+      }
+      shownBattleLines = run.battle.log.length
+    }
+
+    for (const e of run.log) {
+      if (e.id > shownLogId) out.push({ text: e.text, tone: e.tone })
+    }
+    shownLogId = run.log[run.log.length - 1]?.id ?? shownLogId
+
+    return out
+  }
+
   function paint(deltas: HpDeltas = {}): void {
     if (run) {
       const quests = activeQuests(meta).map((q) => ({
@@ -160,14 +197,20 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       }))
       // 目標死了或戰鬥結束就別再指著它
       if (!run.battle) battleTarget = null
-      root.innerHTML = render(run, { deltas, muted: audio.isMuted(), quests, target: battleTarget })
+      view.innerHTML = render(run, {
+        deltas,
+        muted: audio.isMuted(),
+        quests,
+        target: battleTarget,
+        panels,
+      })
       root.classList.toggle('mood--ascent', run.direction === 'up' && !run.over)
       root.classList.toggle('mood--warm', run.endReason === 'surfaced')
       // 筆記本隨深度劣化（企劃書 15-3）
       root.dataset.decay = String(decayOf(run))
     } else {
       delete root.dataset.decay
-      root.innerHTML = renderTown({
+      view.innerHTML = renderTown({
         meta,
         selected,
         summary,
@@ -218,6 +261,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
 
     const grim = current.log.slice(beforeLog).some((e) => e.tone === 'grim')
     paint(deltas)
+    showToasts(toasts, drainToasts())
     syncAudio()
     persist()
 
@@ -254,6 +298,10 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       startDepth: meta.departDepth,
     })
     summary = null
+    shownLogId = 0
+    shownBattleLines = 0
+    battleRef = null
+    clearToasts(toasts)
     audio.reset()
     root.classList.remove('mood--camp')
     paint()
@@ -271,6 +319,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     )
     // 回城後從第一步開始，結算報告就在那一頁
     tab = 'party'
+    clearToasts(toasts)
     audio.reset()
     paint()
     syncAudio()
@@ -411,6 +460,13 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     if (!current) return
 
     // ── 戰鬥 ──
+    if (d.panel) {
+      const up = run?.direction === 'up'
+      togglePanel(panels, d.panel as PanelId, d.panel === 'party' ? !!up : false)
+      paint()
+      return
+    }
+
     if (d.target) {
       battleTarget = d.target
       paint()

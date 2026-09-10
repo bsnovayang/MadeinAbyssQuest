@@ -2,8 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { beginAscent, createRun, moveTo } from '../../core/run'
 import type { HpDeltas } from '../render'
 import { render } from '../render'
+import type { PanelState } from '../panels'
 
-const ui = (deltas: HpDeltas = {}) => ({ deltas, muted: false })
+/** 面板預設收合，測試需要看內容就全部展開 */
+const allOpen = (): PanelState => ({
+  explicit: { party: true, supply: true, quests: true, notes: true },
+})
+
+const ui = (deltas: HpDeltas = {}) => ({ deltas, muted: false, panels: allOpen() })
 
 describe('render', () => {
   it('起始畫面包含深度計、隊伍與抉擇', () => {

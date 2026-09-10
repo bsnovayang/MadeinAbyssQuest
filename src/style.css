@@ -927,6 +927,161 @@ h2 {
   white-space: nowrap;
 }
 
+/* ══ 一個畫面原則 ══════════════════════════════════════════
+ *
+ * 預設只留「必要資訊 + 動作按鈕」，其餘收合。
+ * 探索的每一步都是一次決策，捲動找不到選項就是設計失敗。
+ */
+
+.vitals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.9rem;
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.vitals__load--over,
+.vitals__load--critical {
+  color: #a33d2a;
+  font-weight: 700;
+}
+
+/* 只有「快要害死人」的事情才有資格常駐畫面 */
+.alerts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+
+.alert {
+  font-size: 0.78rem;
+  padding: 0.08rem 0.45rem;
+  border-radius: 2px;
+  background: rgba(163, 61, 42, 0.12);
+  color: #a33d2a;
+  border: 1px solid rgba(163, 61, 42, 0.35);
+}
+
+.deck {
+  margin-bottom: 1rem;
+}
+
+.panel {
+  border-top: 1px solid var(--paper-edge);
+  margin: 0;
+}
+
+.panel__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  width: 100%;
+  font-family: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.5rem 0.1rem;
+  color: var(--ink-soft);
+  text-align: left;
+}
+
+.panel__head:hover {
+  color: var(--ink);
+}
+
+.panel__arrow {
+  font-size: 0.7rem;
+  color: var(--ink-faint);
+}
+
+.panel__title {
+  font-size: 0.86rem;
+  letter-spacing: 0.12em;
+}
+
+.panel__note {
+  margin-left: auto;
+  font-size: 0.76rem;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.panel--open .panel__title {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.panel__body {
+  padding: 0.2rem 0 0.8rem;
+}
+
+/* ── 淡出提示 ────────────────────────────────────────── */
+
+.toasts {
+  position: fixed;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  width: min(30rem, calc(100vw - 2rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.toast {
+  background: var(--paper);
+  border: 1px solid var(--ink-soft);
+  border-left-width: 3px;
+  border-radius: 3px;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.86rem;
+  line-height: 1.6;
+  color: var(--ink);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  animation: toast-in 240ms ease both, toast-out 700ms ease 3.9s both;
+}
+
+.toast--warm {
+  border-left-color: var(--warm);
+}
+
+.toast--cold {
+  border-left-color: var(--cold);
+}
+
+/* 重大事件停留得久一點，而且不用特效（企劃書 16-1） */
+.toast--grim {
+  border-left-color: var(--grim);
+  color: var(--grim);
+  letter-spacing: 0.1em;
+  animation: toast-in 240ms ease both, toast-out 900ms ease 6.5s both;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}
+
 /* ── 分頁 ────────────────────────────────────────────── */
 
 .tabs {

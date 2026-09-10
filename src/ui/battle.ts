@@ -59,7 +59,7 @@ function unitRow(c: Combatant, selected: string | null): string {
       </span>
       <span class="unit__track"><span class="unit__fill" style="width:${pct.toFixed(0)}%"></span></span>
       ${c.charging > 0 ? '<span class="unit__note">正在聚集力量</span>' : ''}
-      ${def && c.side === 'enemy' ? `<span class="unit__desc">${esc(def.desc)}</span>` : ''}
+      ${def && c.side === 'enemy' && selected === c.id ? `<span class="unit__desc">${esc(def.desc)}</span>` : ''}
     </button>`
 }
 
@@ -110,16 +110,6 @@ export function renderBattle(b: BattleState, selected: string | null, medicine: 
           <button class="action" data-flee="1" type="button">撤退</button>
         </div>
         <p class="hint">逃跑永遠是有效的選項。深淵不是競技場。</p>
-      </section>
-
-      <section>
-        <h2>戰況</h2>
-        <ul class="log">
-          ${b.log
-            .slice(-12)
-            .map((line) => `<li class="log__entry"><span></span><span>${esc(line)}</span></li>`)
-            .join('')}
-        </ul>
       </section>
     </div>`
 }

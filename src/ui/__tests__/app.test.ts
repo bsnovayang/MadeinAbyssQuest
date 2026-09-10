@@ -142,6 +142,88 @@ describe('探索', () => {
   })
 })
 
+/**
+ * 一個畫面原則：預設只留必要資訊與動作按鈕。
+ * 探索的每一步都是一次決策，捲動找不到選項就是設計失敗。
+ */
+describe('探索畫面的收合', () => {
+  beforeEach(() => departWith('riko', 'reg'))
+
+  it('預設看得到選項與動作，看不到隊伍細節與筆記', () => {
+    expect(exists('[data-node]')).toBe(true)
+    expect(exists('[data-ascent]')).toBe(true)
+
+    // 面板存在，但內容收著
+    expect(exists('[data-panel="party"]')).toBe(true)
+    expect(exists('.member__name')).toBe(false)
+    expect(exists('.log__entry')).toBe(false)
+    expect(exists('.stats')).toBe(false)
+  })
+
+  it('點面板標題才展開，再點收合', () => {
+    click('[data-panel="party"]')
+    expect(exists('.member__name')).toBe(true)
+
+    click('[data-panel="party"]')
+    expect(exists('.member__name')).toBe(false)
+  })
+
+  it('必要的數字仍然常駐在狀態列', () => {
+    const vitals = root.querySelector('.vitals')?.textContent ?? ''
+    expect(vitals).toContain('人')
+    expect(vitals).toContain('水')
+    expect(vitals).toContain('kg')
+  })
+
+  it('撤離時隊伍自動展開 —— 用藥與轉嫁都在那裡', async () => {
+    click('[data-ascent]')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(exists('.member__name')).toBe(true)
+    expect(exists('.member__fc')).toBe(true)
+  })
+
+  it('快要害死人的事情會浮到狀態列', () => {
+    const run = app.snapshot().run!
+    run.exhaustion = 3
+    click('[data-panel="supply"]')
+    expect(root.querySelector('.alerts')?.textContent).toContain('力竭')
+  })
+})
+
+describe('淡出提示', () => {
+  it('行動之後會出現提示，而不是把紀錄攤在畫面上', async () => {
+    departWith('riko', 'reg')
+    expect(root.querySelectorAll('.toast').length).toBe(0)
+
+    click('[data-node]')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(root.querySelectorAll('.toast').length).toBeGreaterThan(0)
+  })
+
+  it('展開面板不會讓提示重播', async () => {
+    departWith('riko', 'reg')
+    click('[data-node]')
+    await new Promise((r) => setTimeout(r, 0))
+    const before = root.querySelectorAll('.toast').length
+
+    click('[data-panel="notes"]')
+    expect(root.querySelectorAll('.toast').length).toBe(before)
+  })
+
+  it('回到城裡就把提示清乾淨', async () => {
+    departWith('riko', 'reg')
+    click('[data-node]')
+    await new Promise((r) => setTimeout(r, 0))
+
+    const run = app.snapshot().run!
+    run.over = true
+    run.endReason = 'surfaced'
+    click('[data-panel="notes"]')
+    click('[data-return]')
+    expect(root.querySelectorAll('.toast').length).toBe(0)
+  })
+})
+
 describe('戰鬥', () => {
   /** act() 是非同步的，點完要讓 microtask 跑完才看得到結果 */
   const flush = () => new Promise((r) => setTimeout(r, 0))
@@ -242,6 +324,7 @@ describe('委託', () => {
     const id = root.querySelector('[data-take]')!.getAttribute('data-take')!
     click(`[data-take="${id}"]`)
     departWith('riko')
+    click('[data-panel="quests"]')
     expect(exists('.runquests')).toBe(true)
     expect(root.querySelector('.runquests__title')?.textContent?.trim()).toBeTruthy()
   })
