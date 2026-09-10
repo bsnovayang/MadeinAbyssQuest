@@ -1,3 +1,5 @@
+import type { BattleState } from './battle'
+
 export type Direction = 'down' | 'up'
 
 export interface Character {
@@ -118,6 +120,8 @@ export interface RunState {
   ascentSteps: number
   /** 過去被留在深淵的人，會在探索中以聲音的形式出現 */
   echoes: LostSoul[]
+  /** 進行中的戰鬥。不為 null 時，探索的一切都要等它結束 */
+  battle: BattleState | null
   current: AbyssNode
   choices: AbyssNode[]
   log: LogEntry[]

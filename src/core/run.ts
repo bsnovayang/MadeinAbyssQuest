@@ -1,5 +1,13 @@
+import {
+  awaitingActor,
+  createBattle,
+  flee,
+  living,
+  skillsOfActor,
+  useSkill,
+} from './battle'
 import { distributeBurden, hasWardRelic, tierFor } from './curse'
-import { layerAt, threatAt, valueMultiplier, waterCostAt } from './depth'
+import { layerAt, valueMultiplier, waterCostAt } from './depth'
 import { generateChoices, makeNode } from './map'
 import { hashSeed, nextInt, pick } from './rng'
 import { partyBehaviors } from './traits'
@@ -25,6 +33,7 @@ import { BANTER, BANTER_AFTER_LOSS } from '../data/banter'
 import { LOOT } from '../data/loot'
 import { startingParty, startingSupplies } from '../data/party'
 import { RELIC_DEFS, relicById } from '../data/relics'
+import { skillById } from '../data/skills'
 
 export interface RunOptions {
   party?: Character[]
@@ -49,6 +58,7 @@ export function createRun(seed: string, options: RunOptions = {}): RunState {
     direction: 'down',
     party: options.party ?? startingParty(),
     echoes: options.echoes ?? [],
+    battle: null,
     supplies: { ...(options.supplies ?? startingSupplies()) },
     carried: [],
     exhaustion: 0,
@@ -184,6 +194,14 @@ export function moveTo(state: RunState, nodeId: string): void {
   }
 
   if (!state.over) resolveNode(state, node)
+
+  // 打起來了就停在這裡，等戰鬥收場再繼續這一步
+  if (state.battle) return
+
+  completeStep(state)
+}
+
+function completeStep(state: RunState): void {
   applyExhaustion(state)
   reapDead(state)
 
@@ -461,34 +479,110 @@ function echoOfTheLost(state: RunState, node: AbyssNode): boolean {
 
 function resolveEncounter(state: RunState, node: AbyssNode): void {
   if (echoOfTheLost(state, node)) return
+  if (aliveMembers(state).length === 0) return
 
-  const threat = threatAt(state.maxDepthReached)
-  const alive = aliveMembers(state)
-  if (alive.length === 0) return
+  push(state, `${node.label}。`, 'cold')
+  state.battle = createBattle(state.rngState, aliveMembers(state), layerAt(state.depth).id)
+  state.rngState = state.battle.rngState
+}
 
-  const [targetIdx, s1] = nextInt(state.rngState, 0, alive.length - 1)
-  const [roll, s2] = nextInt(s1, 1, 6)
-  state.rngState = s2
+// ─── 戰鬥 ────────────────────────────────────────────────────
 
-  const target = alive[targetIdx]
-  if (!target) return
+export function battleAct(state: RunState, skillId: string, targetId: string | null): void {
+  if (!state.battle || state.battle.over) return
+  useSkill(state.battle, skillId, targetId, state.supplies.medicine)
 
-  // M1/M2 以擲骰佔位，M5 換成 ATB 戰鬥
-  if (roll >= 5) {
-    push(state, `${node.label}。及時避開了。`, 'plain')
-    return
+  const def = skillById(skillId)
+  if (def?.medicine) state.supplies.medicine = Math.max(0, state.supplies.medicine - def.medicine)
+
+  if (state.battle.over) settleBattle(state)
+}
+
+/**
+ * 讓隊伍自己把這場打完：挑傷害最高的技能，打最虛弱的敵人。
+ * 給模擬與（日後的）自動戰鬥使用。
+ */
+export function autoResolveBattle(state: RunState): void {
+  let guard = 0
+  while (state.battle && !state.battle.over && guard++ < 300) {
+    const actor = awaitingActor(state.battle)
+    if (!actor) break
+
+    const options = skillsOfActor(actor)
+
+    // 有人快撐不住就先救人
+    const hurt = living(state.battle, 'party')
+      .filter((c) => c.hp < c.maxHp * 0.4)
+      .sort((a, b) => a.hp - b.hp)[0]
+    const heal = options.find((s) => s.heal && (s.medicine ?? 0) <= state.supplies.medicine)
+    if (hurt && heal) {
+      battleAct(state, heal.id, hurt.id)
+      continue
+    }
+
+    const best = options.filter((s) => s.power).sort((a, b) => (b.power ?? 0) - (a.power ?? 0))[0]
+    const foe = living(state.battle, 'enemy').sort((a, b) => a.hp - b.hp)[0]
+    if (!best || !foe) {
+      battleFlee(state)
+      return
+    }
+
+    battleAct(state, best.id, foe.id)
+  }
+  if (state.battle) battleFlee(state)
+}
+
+export function battleFlee(state: RunState): void {
+  if (!state.battle || state.battle.over) return
+  flee(state.battle)
+  settleBattle(state)
+}
+
+/** 把戰鬥的結果寫回探索層，然後把被中斷的那一步走完 */
+function settleBattle(state: RunState): void {
+  const battle = state.battle
+  if (!battle) return
+
+  state.rngState = battle.rngState
+
+  for (const line of battle.log) push(state, line, 'plain')
+
+  // 傷勢與陣亡
+  for (const unit of battle.combatants) {
+    if (unit.side !== 'party') continue
+    const member = state.party.find((c) => c.id === unit.id)
+    if (!member || member.status !== 'alive') continue
+    member.hp = unit.hp
+    if (member.hp <= 0) killMember(state, member)
   }
 
-  const dmg = Math.max(1, Math.round(threat * (roll / 4)))
-  push(state, `${node.label}。${target.name}受了傷。`, 'cold')
-  damage(state, target, dmg)
+  // 威脅是資源，不是血量（企劃書 12-2）
+  for (const effect of battle.effects) {
+    if (effect.kind === 'poison') {
+      const member = state.party.find((c) => c.id === effect.charId)
+      if (member) member.tolerance = Math.max(0, member.tolerance - effect.amount)
+    }
+    if (effect.kind === 'devour') {
+      const keys: SupplyKey[] = ['food', 'water', 'rope', 'medicine']
+      const owned = keys.filter((k) => state.supplies[k] > 0)
+      if (owned.length > 0) {
+        const [k, s] = pick(state.rngState, owned)
+        state.rngState = s
+        state.supplies[k] -= 1
+        push(state, '背包破了，掉了一些東西。', 'cold')
+      }
+    }
+  }
 
-  if (roll <= 2 && state.direction === 'down') {
-    const [tpl, s3] = pick(state.rngState, LOOT)
-    state.rngState = s3
+  if (battle.over === 'win' && state.direction === 'down') {
+    const [tpl, s] = pick(state.rngState, LOOT)
+    state.rngState = s
     addItem(state, { ...tpl, kind: 'loot', identified: true })
-    push(state, `擊退之後，從殘骸裡取得了${tpl.name}。`, 'plain')
+    push(state, `從殘骸裡取得了${tpl.name}。`, 'plain')
   }
+
+  state.battle = null
+  completeStep(state)
 }
 
 // ─── 內部工具 ────────────────────────────────────────────────
@@ -520,7 +614,12 @@ export const CORPSE_WEIGHT = 22
 function damage(state: RunState, c: Character, amount: number): void {
   c.hp = Math.max(0, c.hp - amount)
   if (c.hp !== 0 || c.status !== 'alive') return
+  killMember(state, c)
+}
 
+function killMember(state: RunState, c: Character): void {
+  if (c.status !== 'alive') return
+  c.hp = 0
   c.status = 'dead'
   // 死亡回饋刻意克制：名字安靜地變灰（企劃書 16-1）
   push(state, `${c.name}停下了。`, 'grim')

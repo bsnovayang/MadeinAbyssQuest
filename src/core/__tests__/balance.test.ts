@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   aliveMembers,
+  autoResolveBattle,
   beginAscent,
   camp,
   canCamp,
@@ -33,6 +34,7 @@ function step(s: RunState): boolean {
   const next = s.choices[0]
   if (!next) return false
   moveTo(s, next.id)
+  autoResolveBattle(s)
   return true
 }
 

@@ -142,6 +142,53 @@ describe('探索', () => {
   })
 })
 
+describe('戰鬥', () => {
+  /** act() 是非同步的，點完要讓 microtask 跑完才看得到結果 */
+  const flush = () => new Promise((r) => setTimeout(r, 0))
+
+  /** 一路往下走到打起來為止 */
+  async function untilBattle(): Promise<boolean> {
+    departWith('riko', 'reg', 'urna', 'tobi')
+    for (let i = 0; i < 40; i++) {
+      if (app.snapshot().run?.battle) return true
+      const node = root.querySelector('[data-node]')
+      if (!node) return false
+      node.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+      await flush()
+    }
+    return !!app.snapshot().run?.battle
+  }
+
+  it('遭遇會切到戰鬥畫面，而且看得到行動順序', async () => {
+    expect(await untilBattle()).toBe(true)
+    expect(exists('.timeline')).toBe(true)
+    expect(root.querySelectorAll('.tl').length).toBeGreaterThan(1)
+    expect(exists('.skill')).toBe(true)
+    expect(exists('[data-flee]')).toBe(true)
+    // 打起來的時候不能繼續探索
+    expect(exists('[data-node]')).toBe(false)
+  })
+
+  it('可以點敵人選定目標', async () => {
+    expect(await untilBattle()).toBe(true)
+    const foe = root.querySelector('.unit--enemy')!
+    const id = foe.getAttribute('data-target')!
+    foe.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+    expect(root.querySelector(`[data-target="${id}"]`)?.classList.contains('unit--target')).toBe(
+      true,
+    )
+  })
+
+  it('撤退會結束戰鬥並回到探索', async () => {
+    expect(await untilBattle()).toBe(true)
+    click('[data-flee]')
+    await flush()
+    expect(app.snapshot().run?.battle).toBeNull()
+    expect(exists('.timeline')).toBe(false)
+    expect(exists('[data-node]')).toBe(true)
+  })
+})
+
 describe('委託', () => {
   beforeEach(() => goto('quests'))
 

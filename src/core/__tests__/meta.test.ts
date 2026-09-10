@@ -15,7 +15,7 @@ import {
   ROSTER_FLOOR,
   type MetaState,
 } from '../meta'
-import { CORPSE_WEIGHT, createRun, dropItem, moveTo } from '../run'
+import { autoResolveBattle, CORPSE_WEIGHT, createRun, dropItem, moveTo } from '../run'
 import type { Character, RunState } from '../types'
 
 const IDS = ['riko', 'reg', 'urna', 'tobi']
@@ -122,7 +122,10 @@ describe('屍體處理', () => {
     for (const c of run.party) c.hp = 1
 
     let guard = 0
-    while (!run.over && run.choices[0] && guard++ < 10) moveTo(run, run.choices[0].id)
+    while (!run.over && run.choices[0] && guard++ < 10) {
+      moveTo(run, run.choices[0].id)
+      autoResolveBattle(run)
+    }
 
     const corpses = run.carried.filter((i) => i.kind === 'corpse')
     expect(corpses.length).toBeGreaterThan(0)

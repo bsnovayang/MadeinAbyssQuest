@@ -19,6 +19,8 @@ import {
   type RunSummary,
 } from '../core/meta'
 import {
+  battleAct,
+  battleFlee,
   beginAscent,
   camp,
   createRun,
@@ -132,6 +134,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
   let selected: string[] = []
   let tab: TownTab = 'party'
   let expanded: string | null = null
+  let battleTarget: string | null = null
   let wiping = false
   let busy = false
   let campTimer: ReturnType<typeof setTimeout> | undefined
@@ -155,7 +158,9 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
         title: q.title,
         progress: describeProgress(q, run),
       }))
-      root.innerHTML = render(run, { deltas, muted: audio.isMuted(), quests })
+      // 目標死了或戰鬥結束就別再指著它
+      if (!run.battle) battleTarget = null
+      root.innerHTML = render(run, { deltas, muted: audio.isMuted(), quests, target: battleTarget })
       root.classList.toggle('mood--ascent', run.direction === 'up' && !run.over)
       root.classList.toggle('mood--warm', run.endReason === 'surfaced')
     } else {
@@ -401,6 +406,21 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
 
     const current = run
     if (!current) return
+
+    // ── 戰鬥 ──
+    if (d.target) {
+      battleTarget = d.target
+      paint()
+      return
+    }
+
+    if (d.skill) {
+      return void act((r) => battleAct(r, d.skill as string, battleTarget), 260)
+    }
+
+    if (d.flee) {
+      return void act((r) => battleFlee(r), 400)
+    }
 
     if (d.node) return void act((r) => moveTo(r, d.node as string), 400)
     if (d.ascent) return void act((r) => beginAscent(r), 700)

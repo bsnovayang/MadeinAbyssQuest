@@ -22,6 +22,7 @@ import {
   beginAscent,
   camp,
   canCamp,
+  autoResolveBattle,
   createRun,
   dropItem,
   dropSupply,
@@ -52,6 +53,7 @@ function step(s: RunState): boolean {
   const next = s.choices[0]
   if (!next) return false
   moveTo(s, next.id)
+  autoResolveBattle(s)
   return true
 }
 

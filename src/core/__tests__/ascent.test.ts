@@ -3,6 +3,7 @@ import { distributeBurden } from '../curse'
 import { retreat } from '../depth'
 import {
   aliveMembers,
+  autoResolveBattle,
   beginAscent,
   camp,
   createRun,
@@ -17,6 +18,11 @@ import type { Item, RunState } from '../types'
 
 function relic(id: string, relicId: string, weight = 5): Item {
   return { id, name: relicId, weight, kind: 'relic', value: 100, identified: true, relicId }
+}
+
+/** 挑一個不會打起來的節點，免得戰鬥干擾對耐受度的斷言 */
+function peaceful(s: RunState): string {
+  return (s.choices.find((n) => n.kind !== 'encounter') ?? s.choices[0]!).id
 }
 
 /** 直接把隊伍放到指定深度，省去一路下潛 */
@@ -44,11 +50,12 @@ describe('ascent', () => {
   it('往下不扣耐受度，往上才扣', () => {
     const s = planted('curse-direction', 3000)
     const before = s.party.map((c) => c.tolerance)
-    moveTo(s, s.choices[0]!.id)
+    moveTo(s, peaceful(s))
     expect(s.party.map((c) => c.tolerance)).toEqual(before)
 
     beginAscent(s)
-    moveTo(s, s.choices[0]!.id)
+    moveTo(s, peaceful(s))
+    autoResolveBattle(s)
     const riko = s.party.find((c) => c.id === 'riko')!
     expect(riko.tolerance).toBeLessThan(before[0]!)
   })
@@ -57,7 +64,10 @@ describe('ascent', () => {
     const s = planted('reg-immune', 8000)
     beginAscent(s)
     const reg = s.party.find((c) => c.id === 'reg')!
-    for (let i = 0; i < 5 && !s.over && s.choices[0]; i++) moveTo(s, s.choices[0].id)
+    for (let i = 0; i < 5 && !s.over && s.choices[0]; i++) {
+      moveTo(s, s.choices[0].id)
+      autoResolveBattle(s)
+    }
     expect(reg.tolerance).toBe(reg.maxTolerance)
   })
 
@@ -68,7 +78,10 @@ describe('ascent', () => {
     s.supplies.food = 10
     beginAscent(s)
     let guard = 0
-    while (!s.over && s.choices[0] && guard++ < 40) moveTo(s, s.choices[0].id)
+    while (!s.over && s.choices[0] && guard++ < 40) {
+      moveTo(s, s.choices[0].id)
+      autoResolveBattle(s)
+    }
     expect(s.endReason).toBe('surfaced')
     expect(s.depth).toBe(0)
   })
@@ -76,14 +89,15 @@ describe('ascent', () => {
   it('撤離途中可以反悔往下，已受的傷不會消失', () => {
     const s = planted('regret', 5000)
     beginAscent(s)
-    moveTo(s, s.choices[0]!.id)
+    moveTo(s, peaceful(s))
+    autoResolveBattle(s)
     const riko = s.party.find((c) => c.id === 'riko')!
     const hurt = riko.tolerance
     expect(hurt).toBeLessThan(riko.maxTolerance)
 
     resumeDescent(s)
     expect(s.direction).toBe('down')
-    moveTo(s, s.choices[0]!.id)
+    moveTo(s, peaceful(s))
     expect(s.party.find((c) => c.id === 'riko')!.tolerance).toBe(hurt)
   })
 
@@ -92,7 +106,8 @@ describe('ascent', () => {
     const deep = planted('deep', 12500)
     for (const s of [shallow, deep]) {
       beginAscent(s)
-      moveTo(s, s.choices[0]!.id)
+      moveTo(s, peaceful(s))
+      autoResolveBattle(s)
     }
     const shallowLoss = 10 - shallow.party.find((c) => c.id === 'riko')!.tolerance
     const deepLoss = 10 - deep.party.find((c) => c.id === 'riko')!.tolerance

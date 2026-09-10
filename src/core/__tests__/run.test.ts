@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   aliveMembers,
+  autoResolveBattle,
   camp,
   canMove,
   createRun,
@@ -33,6 +34,7 @@ function descendUntilOver(seed: string, maxSteps = 400): RunState {
       continue
     }
     moveTo(s, firstChoice(s))
+    autoResolveBattle(s)
     steps++
   }
   return s

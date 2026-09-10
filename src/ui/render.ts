@@ -10,6 +10,7 @@ import {
   totalValue,
 } from '../core/run'
 import { partyBehaviors } from '../core/traits'
+import { renderBattle } from './battle'
 import type { NodeKind, RunState, Supplies } from '../core/types'
 import { capacityOf } from '../core/weight'
 import { relicById } from '../data/relics'
@@ -21,6 +22,8 @@ export interface UiState {
   muted: boolean
   /** 這一趟承接的委託與目前進度 */
   quests?: { title: string; progress: string }[]
+  /** 戰鬥中選定的目標 */
+  target?: string | null
 }
 
 const KIND_LABEL: Readonly<Record<NodeKind, string>> = {
@@ -274,8 +277,10 @@ function anchorBlockedBy(state: RunState): string | null {
   return null
 }
 
-function actions(state: RunState): string {
+function actions(state: RunState, ui: UiState): string {
   if (state.over) return ended(state)
+  // 打起來的時候，探索的一切都要等
+  if (state.battle) return renderBattle(state.battle, ui.target ?? null, state.supplies.medicine)
 
   const up = state.direction === 'up'
   const blocked = !canMove(state)
@@ -382,8 +387,8 @@ export function render(state: RunState, ui: UiState): string {
         ${questPanel(ui)}
       </div>
       <div class="col-right">
-        ${actions(state)}
-        ${log(state)}
+        ${actions(state, ui)}
+        ${state.battle ? '' : log(state)}
       </div>
     </div>
     <div class="seed">seed: ${esc(state.seed)}</div>`
