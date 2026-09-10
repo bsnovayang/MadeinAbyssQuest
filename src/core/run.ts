@@ -460,6 +460,7 @@ function resolveNode(state: RunState, node: AbyssNode): void {
         relicId: def.id,
       })
       push(state, `${node.label}。是遺物 —— ${def.name}，${def.weight}kg。`, 'warm')
+      push(state, `${def.name}：${def.effect}。代價是${def.cost}。`, 'cold')
       break
     }
 

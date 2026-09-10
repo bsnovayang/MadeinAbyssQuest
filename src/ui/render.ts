@@ -246,12 +246,25 @@ function supplyBody(state: RunState): string {
     .map((i) => {
       const def = i.relicId ? relicById(i.relicId) : undefined
       const corpse = i.kind === 'corpse'
+
+      // 不知道值多少錢，就沒辦法決定該丟什麼
+      const notes: string[] = []
+      if (def) {
+        notes.push(def.effect)
+        notes.push(
+          def.kind === 'escape'
+            ? `代價　${def.cost}`
+            : '撤離時在隊伍面板指定承受的人',
+        )
+      }
+      if (corpse) notes.push('帶回地表才能安葬')
+      else if (i.value > 0) notes.push(`帶回地表可換 ${i.value}`)
+
       return `
         <li class="${corpse ? 'carried--corpse' : ''}">
           <span>
             ${esc(i.name)}
-            ${def ? `<span class="carried__note">${esc(def.effect)}</span>` : ''}
-            ${corpse ? '<span class="carried__note">帶回地表才能安葬</span>' : ''}
+            ${notes.map((n) => `<span class="carried__note">${esc(n)}</span>`).join('')}
           </span>
           <span class="carried__meta">
             ${i.weight}kg
@@ -379,6 +392,7 @@ function actions(state: RunState): string {
     )
     .join('')
 
+  // 只寫代價不寫效果，等於叫玩家別按。按鈕必須自己說明白它是做什麼的
   const relicButtons = escapeRelics(state)
     .map((i) => {
       const def = relicById(i.relicId ?? '')
@@ -386,6 +400,7 @@ function actions(state: RunState): string {
       return `
         <button class="relic" data-relic="${esc(i.id)}" type="button">
           <span class="relic__name">${esc(def.name)}</span>
+          <span class="relic__effect">${esc(def.effect)}</span>
           <span class="relic__cost">代價　${esc(def.cost)}</span>
         </button>`
     })
@@ -411,7 +426,15 @@ function actions(state: RunState): string {
             : `<button class="action action--key" data-ascent="1" type="button">開始撤離</button>`
         }
       </div>
-      ${relicButtons ? `<div class="relics">${relicButtons}</div>` : ''}
+      ${
+        relicButtons
+          ? `<div class="relics">
+               <h2>遺物・立刻脫離</h2>
+               <p class="hint">按下去就直接回到地表，剩下的路不必走。但代價一定會發生。</p>
+               ${relicButtons}
+             </div>`
+          : ''
+      }
     </section>`
 }
 

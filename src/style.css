@@ -681,6 +681,15 @@ h2 {
   margin-top: 1.2rem;
 }
 
+.relics h2 {
+  color: #a33d2a;
+}
+
+.relics .hint {
+  border-left-color: #c9a79d;
+  margin-bottom: 0.6rem;
+}
+
 .relic {
   display: block;
   width: 100%;

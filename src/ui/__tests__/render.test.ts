@@ -54,6 +54,21 @@ describe('render', () => {
     expect(html).toContain('/步') // 每步的代價也要看得見
   })
 
+  it('行李裡看得到戰利品值多少 —— 否則沒辦法決定該丟什麼', () => {
+    const s = createRun('value')
+    s.carried.push({
+      id: 'l1',
+      name: '獸骨結晶',
+      weight: 3,
+      kind: 'loot',
+      value: 250,
+      identified: true,
+    })
+    const html = render(s, ui())
+    expect(html).toContain('獸骨結晶')
+    expect(html).toContain('帶回地表可換 250')
+  })
+
   it('持有脫離型遺物時顯示效果與代價', () => {
     const s = createRun('relic')
     s.carried.push({
@@ -67,7 +82,24 @@ describe('render', () => {
     })
     const html = render(s, ui())
     expect(html).toContain('不動之楔')
+    // 只寫代價不寫效果，等於叫玩家別按
+    expect(html).toContain('全隊立即返回地表')
     expect(html).toContain('隨機一名隊友被留在原地')
+  })
+
+  it('持有常駐型遺物時說明怎麼用', () => {
+    const s = createRun('ward-usage')
+    s.carried.push({
+      id: 'w1',
+      name: '避咒之籠',
+      weight: 5,
+      kind: 'relic',
+      value: 1200,
+      identified: true,
+      relicId: 'ward-basket',
+    })
+    const html = render(s, ui())
+    expect(html).toContain('撤離時在隊伍面板指定承受的人')
   })
 
   it('回到地表時結算帶回的價值與名字', () => {
