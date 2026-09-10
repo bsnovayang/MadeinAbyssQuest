@@ -388,8 +388,25 @@ h2 {
 }
 
 .action:disabled {
-  opacity: 0.35;
+  opacity: 0.55;
   cursor: default;
+}
+
+/* 停用的按鈕一定要說出原因，否則玩家分不出那是壞掉還是刻意的 */
+.action__why {
+  display: block;
+  font-size: 0.74rem;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  margin-top: 0.1rem;
+}
+
+.hint {
+  margin: 0.7rem 0 0;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  border-left: 2px solid var(--paper-edge);
+  padding-left: 0.6rem;
 }
 
 /* ── 節奏：重要的事情要慢（企劃書 16-3、16-6）──────────── */

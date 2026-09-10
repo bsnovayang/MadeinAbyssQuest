@@ -251,6 +251,26 @@ function ended(state: RunState): string {
     </div>`
 }
 
+/**
+ * 停用的按鈕一定要說出原因。
+ * 沒有原因的停用按鈕是死路 —— 玩家分不出那是壞掉還是刻意的。
+ */
+function reasonWhy(reason: string | null): string {
+  return reason ? `<span class="action__why">${esc(reason)}</span>` : ''
+}
+
+function campBlockedBy(state: RunState): string | null {
+  if (state.current.kind !== 'rest') return '這裡沒有地方生火'
+  if (state.supplies.food < 1) return '沒有食物了'
+  return null
+}
+
+function anchorBlockedBy(state: RunState): string | null {
+  if (state.current.kind !== 'anchor') return '這裡沒有升降裝置'
+  if (state.supplies.rope < 1) return '沒有繩索了'
+  return null
+}
+
 function actions(state: RunState): string {
   if (state.over) return ended(state)
 
@@ -284,12 +304,15 @@ function actions(state: RunState): string {
     <section>
       <h2>${up ? '往上' : '往下'}</h2>
       <div class="choices">${buttons}</div>
+      ${blocked ? '<p class="hint">背得太重了，一步也走不動。先丟掉一些東西。</p>' : ''}
       <div class="actions">
         <button class="action" data-camp="1" type="button" ${canCamp(state) ? '' : 'disabled'}>
           紮營（食物 −1）
+          ${reasonWhy(campBlockedBy(state))}
         </button>
         <button class="action" data-anchor="1" type="button" ${canUseAnchor(state) ? '' : 'disabled'}>
           使用錨點・上升一層（繩索 −1）
+          ${reasonWhy(anchorBlockedBy(state))}
         </button>
         ${
           up

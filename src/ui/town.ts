@@ -165,12 +165,15 @@ export function renderTown(
           }
           <div class="actions">
             <button class="action action--key" data-depart="1" type="button" ${canDepart ? '' : 'disabled'}>
-              出發下潛
+              ${canDepart ? `出發下潛（${selected.length} 人）` : '出發下潛'}
+              ${canDepart ? '' : '<span class="action__why">還沒有決定誰要下去</span>'}
             </button>
             <button class="action" data-recruit="1" type="button" ${canRecruit ? '' : 'disabled'}>
               從孤兒院招募（${RECRUIT_COST}）
+              ${canRecruit ? '' : '<span class="action__why">資金不足</span>'}
             </button>
           </div>
+          ${canDepart ? '' : '<p class="hint">點名冊上的人把他們編進隊伍。最多四個人。</p>'}
           ${
             available.length === 0
               ? '<p class="report__line">名冊上一個人也不剩了。孤兒院還會再送人來。</p>'

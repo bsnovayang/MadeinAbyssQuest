@@ -48,10 +48,22 @@ describe('奧斯城', () => {
     expect(app.snapshot().selected).toEqual(['riko'])
   })
 
-  it('沒選人時「出發下潛」是停用的', () => {
-    expect(root.querySelector('[data-depart]')?.hasAttribute('disabled')).toBe(true)
+  it('沒選人時「出發下潛」是停用的，而且說得出原因', () => {
+    const depart = root.querySelector('[data-depart]')!
+    expect(depart.hasAttribute('disabled')).toBe(true)
+    expect(depart.querySelector('.action__why')?.textContent).toContain('還沒有決定誰要下去')
+    expect(root.querySelector('.hint')?.textContent).toContain('點名冊上的人')
+
     click('[data-depart]')
     expect(app.snapshot().view).toBe('town')
+  })
+
+  it('選了人之後提示消失，按鈕顯示人數', () => {
+    click('[data-pick="riko"]')
+    const depart = root.querySelector('[data-depart]')!
+    expect(depart.hasAttribute('disabled')).toBe(false)
+    expect(depart.textContent).toContain('1 人')
+    expect(root.querySelector('.hint')).toBeNull()
   })
 
   it('★選好人之後按「出發下潛」會真的出發', () => {
@@ -102,6 +114,31 @@ describe('探索', () => {
     // 直接重繪出結束畫面再按鈕
     click('[data-node],[data-ascent]')
     await Promise.resolve()
+  })
+})
+
+/**
+ * 停用而不說原因的按鈕是死路 —— 玩家分不出那是壞掉還是刻意的。
+ * 這條規則實際上就是「出發下潛沒反應」那份回報的根源。
+ */
+describe('停用的按鈕都要說得出原因', () => {
+  function assertAllExplained(): void {
+    const disabled = [...root.querySelectorAll('button.action[disabled]')]
+    for (const b of disabled) {
+      expect(b.querySelector('.action__why'), `未說明原因：${b.textContent?.trim()}`).not.toBeNull()
+    }
+  }
+
+  it('奧斯城', () => {
+    expect(root.querySelectorAll('button.action[disabled]').length).toBeGreaterThan(0)
+    assertAllExplained()
+  })
+
+  it('探索途中', () => {
+    click('[data-pick="riko"]')
+    click('[data-depart]')
+    expect(root.querySelectorAll('button.action[disabled]').length).toBeGreaterThan(0)
+    assertAllExplained()
   })
 })
 
