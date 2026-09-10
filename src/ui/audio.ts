@@ -23,14 +23,29 @@ function now(): number {
   return ctx?.currentTime ?? 0
 }
 
+/** 音效出任何問題都不該影響遊戲，之後所有呼叫都會安靜地跳過 */
+let broken = false
+
 /** 必須由使用者手勢觸發，否則瀏覽器不允許播放 */
 export function ensureAudio(): void {
+  if (broken) return
+  try {
+    initAudio()
+  } catch {
+    broken = true
+    ctx = null
+  }
+}
+
+function initAudio(): void {
   if (ctx) {
     if (ctx.state === 'suspended') void ctx.resume()
     return
   }
 
-  const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  const Ctor =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
   if (!Ctor) return
 
   ctx = new Ctor()
