@@ -22,6 +22,7 @@ function goto(tab: string): void {
 }
 
 function departWith(...ids: string[]): void {
+  goto('party')
   for (const id of ids) click(`[data-pick="${id}"]`)
   goto('supply')
   click('[data-depart]')
@@ -138,6 +139,80 @@ describe('探索', () => {
     // 直接重繪出結束畫面再按鈕
     click('[data-node],[data-ascent]')
     await Promise.resolve()
+  })
+})
+
+describe('委託', () => {
+  beforeEach(() => goto('quests'))
+
+  it('公告板列出委託，看得到報酬、深度與期限', () => {
+    const cards = root.querySelectorAll('.quest')
+    expect(cards.length).toBeGreaterThan(0)
+    const first = cards[0]!
+    expect(first.querySelector('.quest__reward')?.textContent?.trim()).toBeTruthy()
+    expect(first.querySelector('.quest__desc')?.textContent?.trim()).toBeTruthy()
+    expect(first.querySelector('.quest__meta')?.textContent).toContain('剩')
+  })
+
+  it('承接之後移到已承接區，且最多兩張', () => {
+    const ids = [...root.querySelectorAll('[data-take]')].map((b) =>
+      b.getAttribute('data-take'),
+    )
+    click(`[data-take="${ids[0]}"]`)
+    expect(app.snapshot().meta.quests.filter((q) => q.state === 'taken')).toHaveLength(1)
+    expect(exists('.quest--taken')).toBe(true)
+
+    click(`[data-take="${ids[1]}"]`)
+    expect(app.snapshot().meta.quests.filter((q) => q.state === 'taken')).toHaveLength(2)
+
+    // 額滿之後承接鈕停用
+    expect(
+      [...root.querySelectorAll('[data-take]')].every((b) => b.hasAttribute('disabled')),
+    ).toBe(true)
+  })
+
+  it('可以放棄已承接的委託', () => {
+    const id = root.querySelector('[data-take]')!.getAttribute('data-take')!
+    click(`[data-take="${id}"]`)
+    click(`[data-abandon="${id}"]`)
+    expect(app.snapshot().meta.quests.filter((q) => q.state === 'taken')).toHaveLength(0)
+  })
+
+  it('顯示晉升進度，而且說清楚階級不限制深度', () => {
+    const text = root.textContent ?? ''
+    expect(text).toContain('紅笛')
+    expect(text).toContain('晉升蒼笛')
+    expect(text).toContain('階級不限制你能下潛多深')
+  })
+
+  it('在城裡待一天會推進日期', () => {
+    const day = app.snapshot().meta.day
+    click('[data-rest]')
+    expect(app.snapshot().meta.day).toBe(day + 1)
+  })
+
+  it('承接的委託在探索中看得見進度', () => {
+    const id = root.querySelector('[data-take]')!.getAttribute('data-take')!
+    click(`[data-take="${id}"]`)
+    departWith('riko')
+    expect(exists('.runquests')).toBe(true)
+    expect(root.querySelector('.runquests__title')?.textContent?.trim()).toBeTruthy()
+  })
+})
+
+describe('休養', () => {
+  it('傷勢未癒的人在名冊上看得到，但選不了', () => {
+    const tobi = app.snapshot().meta.roster.find((c) => c.id === 'tobi')!
+    tobi.hp = 1
+    goto('records')
+    goto('party')
+
+    const card = root.querySelector('[data-pick="tobi"]')!
+    expect(card.hasAttribute('disabled')).toBe(true)
+    expect(card.textContent).toContain('傷勢未癒')
+
+    click('[data-pick="tobi"]')
+    expect(app.snapshot().selected).toEqual([])
   })
 })
 

@@ -1,6 +1,9 @@
 import { afflictionById } from '../core/affliction'
 import {
+  abandonQuest,
+  activeQuests,
   adjustLoadout,
+  advanceDays,
   concludeRun,
   createMeta,
   deployParty,
@@ -9,6 +12,7 @@ import {
   normalizeMeta,
   PARTY_SIZE,
   replenish,
+  takeQuest,
   type MetaState,
   type RunSummary,
 } from '../core/meta'
@@ -25,6 +29,7 @@ import {
   useEscapeRelic,
   useMedicine,
 } from '../core/run'
+import { describeProgress } from '../core/quests'
 import type { RunState, SupplyKey } from '../core/types'
 import { render, type HpDeltas } from './render'
 import type { SaveData } from './storage'
@@ -144,7 +149,11 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
 
   function paint(deltas: HpDeltas = {}): void {
     if (run) {
-      root.innerHTML = render(run, { deltas, muted: audio.isMuted() })
+      const quests = activeQuests(meta).map((q) => ({
+        title: q.title,
+        progress: describeProgress(q, run),
+      }))
+      root.innerHTML = render(run, { deltas, muted: audio.isMuted(), quests })
       root.classList.toggle('mood--ascent', run.direction === 'up' && !run.over)
       root.classList.toggle('mood--warm', run.endReason === 'surfaced')
     } else {
@@ -315,6 +324,27 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       tab = d.tab as TownTab
       wiping = false
       paint()
+      return
+    }
+
+    if (d.take) {
+      takeQuest(meta, d.take)
+      paint()
+      persist()
+      return
+    }
+
+    if (d.abandon) {
+      abandonQuest(meta, d.abandon)
+      paint()
+      persist()
+      return
+    }
+
+    if (d.rest) {
+      advanceDays(meta, 1)
+      paint()
+      persist()
       return
     }
 

@@ -19,6 +19,8 @@ export type HpDeltas = Record<string, number>
 export interface UiState {
   deltas: HpDeltas
   muted: boolean
+  /** 這一趟承接的委託與目前進度 */
+  quests?: { title: string; progress: string }[]
 }
 
 const KIND_LABEL: Readonly<Record<NodeKind, string>> = {
@@ -333,6 +335,28 @@ function actions(state: RunState): string {
     </section>`
 }
 
+/** 接了委託卻在探索中看不到，等於沒接 */
+function questPanel(ui: UiState): string {
+  const quests = ui.quests ?? []
+  if (quests.length === 0) return ''
+
+  return `
+    <section>
+      <h2>委託</h2>
+      <ul class="runquests">
+        ${quests
+          .map(
+            (q) => `
+              <li>
+                <span class="runquests__title">${esc(q.title)}</span>
+                <span class="runquests__progress">${esc(q.progress)}</span>
+              </li>`,
+          )
+          .join('')}
+      </ul>
+    </section>`
+}
+
 function log(state: RunState): string {
   const entries = state.log
     .slice(-40)
@@ -355,6 +379,7 @@ export function render(state: RunState, ui: UiState): string {
       <div class="col-left">
         ${party(state, ui)}
         ${supplies(state)}
+        ${questPanel(ui)}
       </div>
       <div class="col-right">
         ${actions(state)}

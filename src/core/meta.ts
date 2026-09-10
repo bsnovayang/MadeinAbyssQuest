@@ -1,10 +1,18 @@
 import { CURSE_AFFLICTIONS, effectiveStats } from './affliction'
 import { layerAt } from './depth'
 import { nextInt, pick } from './rng'
+import {
+  evaluateQuest,
+  generateQuest,
+  MAX_ACTIVE_QUESTS,
+  QUEST_OFFERS,
+  type Quest,
+} from './quests'
 import { COMMON_TRAITS } from './traits'
 import type { Character, LostSoul, MemorialEntry, RunState, Supplies, SupplyKey } from './types'
 import { RECRUIT_BIOS } from '../data/bios'
 import { RECRUIT_NAMES } from '../data/names'
+import { RANKS, rankAt, type RankDef } from '../data/ranks'
 import { startingParty, startingSupplies } from '../data/party'
 
 export interface MetaState {
@@ -16,6 +24,15 @@ export interface MetaState {
   /** 下一趟要帶的補給。出發時才付錢 */
   loadout: Supplies
   funds: number
+  /** 地表的日期。委託期限與休養都靠它推進 */
+  day: number
+  /** 目前的笛階級（見 data/ranks.ts） */
+  rankIndex: number
+  /** 已完成的委託數，晉升的條件之一 */
+  questsCompleted: number
+  /** 委託公告板與已承接的委託 */
+  quests: Quest[]
+  nextQuestId: number
   runIndex: number
   /** 活著回到地表的次數 */
   runsSurvived: number
@@ -82,6 +99,11 @@ export function createMeta(rngState = 20260910): MetaState {
     loadout: startingSupplies(),
     // 第一趟的本錢。之後就得自己賺
     funds: 700,
+    day: 1,
+    rankIndex: 0,
+    questsCompleted: 0,
+    quests: [],
+    nextQuestId: 1,
     runIndex: 0,
     runsSurvived: 0,
     deepestReached: 0,
@@ -89,6 +111,7 @@ export function createMeta(rngState = 20260910): MetaState {
     rngState,
   }
   refreshApplicants(meta)
+  refreshQuests(meta)
   return meta
 }
 
@@ -101,6 +124,11 @@ export function normalizeMeta(meta: MetaState): MetaState {
   meta.runsSurvived ??= 0
   meta.deepestReached ??= 0
   meta.totalEarned ??= 0
+  meta.day ??= 1
+  meta.rankIndex ??= 0
+  meta.questsCompleted ??= 0
+  meta.quests ??= []
+  meta.nextQuestId ??= 1
   for (const c of [...meta.roster, ...meta.applicants]) {
     c.afflictions ??= []
     c.traits ??= []
@@ -113,6 +141,102 @@ export function normalizeMeta(meta: MetaState): MetaState {
 
 export function availableMembers(meta: MetaState): Character[] {
   return meta.roster.filter((c) => c.status === 'alive')
+}
+
+// ─── 階級 ────────────────────────────────────────────────────
+
+export function currentRank(meta: MetaState): RankDef {
+  return rankAt(meta.rankIndex)
+}
+
+export function nextRank(meta: MetaState): RankDef | null {
+  return meta.rankIndex + 1 < RANKS.length ? rankAt(meta.rankIndex + 1) : null
+}
+
+export function canPromote(meta: MetaState): boolean {
+  const next = nextRank(meta)
+  if (!next) return false
+  return meta.questsCompleted >= next.quests && meta.deepestReached >= next.depth
+}
+
+export function promote(meta: MetaState): RankDef | null {
+  if (!canPromote(meta)) return null
+  meta.rankIndex += 1
+  refreshQuests(meta)
+  return currentRank(meta)
+}
+
+export function rosterCap(meta: MetaState): number {
+  return currentRank(meta).rosterCap
+}
+
+// ─── 時間與休養 ──────────────────────────────────────────────
+
+/** 低於這個比例的人不能出勤（企劃書 11-3） */
+export const DEPLOY_HP_RATIO = 0.5
+
+export function isFit(c: Character): boolean {
+  return c.status === 'alive' && c.hp >= effectiveStats(c).maxHp * DEPLOY_HP_RATIO
+}
+
+export function deployableMembers(meta: MetaState): Character[] {
+  return meta.roster.filter(isFit)
+}
+
+/**
+ * 讓地表的時間前進。
+ * 傷員會慢慢恢復，過期的委託會消失 —— 等待從來不是免費的。
+ */
+export function advanceDays(meta: MetaState, days = 1): void {
+  meta.day += days
+
+  for (const c of meta.roster) {
+    if (c.status !== 'alive') continue
+    const max = effectiveStats(c).maxHp
+    c.hp = Math.min(max, c.hp + Math.ceil(max * 0.25) * days)
+  }
+
+  const before = meta.quests.length
+  meta.quests = meta.quests.filter((q) => q.deadline >= meta.day)
+  if (meta.quests.length !== before) refreshQuests(meta)
+  refreshQuests(meta)
+}
+
+// ─── 委託 ────────────────────────────────────────────────────
+
+export function openQuests(meta: MetaState): Quest[] {
+  return meta.quests.filter((q) => q.state === 'open')
+}
+
+export function activeQuests(meta: MetaState): Quest[] {
+  return meta.quests.filter((q) => q.state === 'taken')
+}
+
+export function refreshQuests(meta: MetaState): void {
+  const tier = currentRank(meta).questTier
+  while (openQuests(meta).length < QUEST_OFFERS) {
+    const [quest, s] = generateQuest(meta.rngState, meta.nextQuestId, tier, meta.day)
+    meta.rngState = s
+    meta.nextQuestId += 1
+    meta.quests.push(quest)
+  }
+}
+
+export function takeQuest(meta: MetaState, id: string): boolean {
+  if (activeQuests(meta).length >= MAX_ACTIVE_QUESTS) return false
+  const quest = meta.quests.find((q) => q.id === id && q.state === 'open')
+  if (!quest) return false
+  quest.state = 'taken'
+  refreshQuests(meta)
+  return true
+}
+
+export function abandonQuest(meta: MetaState, id: string): boolean {
+  const idx = meta.quests.findIndex((q) => q.id === id && q.state === 'taken')
+  if (idx < 0) return false
+  meta.quests.splice(idx, 1)
+  refreshQuests(meta)
+  return true
 }
 
 // ─── 羈絆 ────────────────────────────────────────────────────
@@ -145,7 +269,7 @@ export function bondBonus(member: Character, party: readonly Character[]): numbe
 export function deployParty(meta: MetaState, ids: readonly string[]): Character[] {
   const chosen = ids
     .map((id) => meta.roster.find((c) => c.id === id))
-    .filter((c): c is Character => !!c && c.status === 'alive')
+    .filter((c): c is Character => !!c && isFit(c))
 
   return chosen.map((c) => {
     const stats = effectiveStats(c)
@@ -155,7 +279,8 @@ export function deployParty(meta: MetaState, ids: readonly string[]): Character[
       bonds: { ...c.bonds },
       afflictions: [...c.afflictions],
       traits: [...c.traits],
-      hp: stats.maxHp,
+      // 傷還沒好就出勤，那是玩家自己的選擇
+      hp: Math.min(c.hp, stats.maxHp),
       maxHp: stats.maxHp,
       tolerance: stats.maxTolerance + bonus,
       maxTolerance: stats.maxTolerance + bonus,
@@ -171,6 +296,12 @@ export interface RunSummary {
   earned: number
   /** 沒用完的補給賣回來的錢 */
   refunded: number
+  /** 完成的委託 */
+  questsDone: { title: string; reward: number }[]
+  /** 逾期或失敗而失去的委託 */
+  questsFailed: string[]
+  daysSpent: number
+  promoted: string | null
   survivors: string[]
   dead: string[]
   lost: string[]
@@ -188,6 +319,10 @@ export function concludeRun(meta: MetaState, run: RunState): RunSummary {
     surfaced,
     earned: 0,
     refunded: 0,
+    questsDone: [],
+    questsFailed: [],
+    daysSpent: 0,
+    promoted: null,
     survivors: [],
     dead: [],
     lost: [],
@@ -199,6 +334,10 @@ export function concludeRun(meta: MetaState, run: RunState): RunSummary {
   meta.deepestReached = Math.max(meta.deepestReached, Math.round(run.maxDepthReached))
   if (surfaced) meta.runsSurvived += 1
 
+  // 一趟至少花掉一天，紮營過的每一夜都要算
+  summary.daysSpent = Math.max(1, run.daysElapsed)
+  meta.day += summary.daysSpent
+
   const buriedIds = new Set(
     surfaced
       ? run.carried.filter((i) => i.kind === 'corpse' && i.ownerId).map((i) => i.ownerId as string)
@@ -207,6 +346,7 @@ export function concludeRun(meta: MetaState, run: RunState): RunSummary {
 
   const survivors = run.party.filter((c) => c.status === 'alive')
   const fallen = run.party.filter((c) => c.status !== 'alive')
+  const deployedCount = run.party.length
 
   // 只有活著回到地表，戰利品才算數（企劃書 9-2）
   if (surfaced) {
@@ -260,6 +400,8 @@ export function concludeRun(meta: MetaState, run: RunState): RunSummary {
       if (!entry) continue
       summary.survivors.push(s.name)
       entry.status = 'alive'
+      // 傷勢帶回地表。沒有休養就出勤，下一趟會更危險
+      entry.hp = Math.max(1, s.hp)
 
       // 一起活著回來 → 羈絆 +1
       for (const other of survivors) {
@@ -276,7 +418,38 @@ export function concludeRun(meta: MetaState, run: RunState): RunSummary {
     }
   }
 
+  settleQuests(meta, run, summary, deployedCount)
+
+  const rank = promote(meta)
+  if (rank) summary.promoted = rank.name
+
+  refreshQuests(meta)
   return summary
+}
+
+/**
+ * 委託驗收。承接的委託只有兩種下場：這一趟達成，或者失去。
+ * 沒有「下次再說」—— 否則接下委託就沒有風險。
+ */
+function settleQuests(
+  meta: MetaState,
+  run: RunState,
+  summary: RunSummary,
+  deployed: number,
+): void {
+  for (const quest of activeQuests(meta)) {
+    if (evaluateQuest(quest, run, deployed)) {
+      meta.funds += quest.reward
+      meta.questsCompleted += 1
+      summary.questsDone.push({ title: quest.title, reward: quest.reward })
+    } else {
+      summary.questsFailed.push(quest.title)
+    }
+  }
+
+  meta.quests = meta.quests.filter((q) => q.state !== 'taken')
+  // 這一趟花掉的日子可能已經讓公告板上的委託過期
+  meta.quests = meta.quests.filter((q) => q.deadline >= meta.day)
 }
 
 function rollAffliction(meta: MetaState, member: Character, run: RunState): string | null {
@@ -326,6 +499,7 @@ export function hire(meta: MetaState, applicantId: string): Character | null {
   const idx = meta.applicants.findIndex((c) => c.id === applicantId)
   const candidate = meta.applicants[idx]
   if (!candidate) return null
+  if (meta.roster.filter((c) => c.status === 'alive').length >= rosterCap(meta)) return null
 
   const cost = hireCost(candidate)
   if (meta.funds < cost) return null

@@ -3,6 +3,7 @@
  *   npx vite-node src/core/__tests__/balance.stats.ts
  */
 import { formatDepth, layerAt } from '../depth'
+import { generateQuest } from '../quests'
 import {
   clampLoadoutToFunds,
   availableMembers,
@@ -176,6 +177,34 @@ for (const turnAt of [800, 1600, 2800, 4500, 7500, 10000, 12500, 14000]) {
     `${formatDepth(turnAt).padStart(8)}  ${String(layerAt(turnAt).id).padStart(4)}  ` +
       `${(rate * 100).toFixed(0).padStart(5)}%  ${home.toFixed(2).padStart(12)}  ` +
       `${value.toFixed(0).padStart(8)}  ${(rate * value).toFixed(0).padStart(9)}`,
+  )
+}
+
+console.log('\n── 委託報酬能不能把誘因推向深處（M4b）──')
+console.log('折返深度      層  生還率   戰利品  委託報酬  含委託期望  純戰利品期望')
+for (const turnAt of [1600, 2800, 4500, 7500, 10000, 12500]) {
+  const runs = Array.from({ length: N }, (_, i) => prudentRun(`q-${turnAt}-${i}`, turnAt))
+  const survived = runs.filter((r) => r.survived)
+  const rate = survived.length / runs.length
+  const loot = survived.reduce((a, r) => a + r.value, 0) / Math.max(1, survived.length)
+
+  // 該深度典型委託的報酬（取所有樣板的平均倍率）
+  let s = 99991
+  let reward = 0
+  const samples = 40
+  for (let i = 0; i < samples; i++) {
+    const [q, ns] = generateQuest(s, i, layerAt(turnAt).id, 1)
+    s = ns
+    // 換算成「若這張委託指定的正是這個深度」的報酬
+    reward += (q.reward / Math.max(1, q.minDepth || turnAt)) * turnAt
+  }
+  reward /= samples
+
+  console.log(
+    `${formatDepth(turnAt).padStart(8)}  ${String(layerAt(turnAt).id).padStart(4)}  ` +
+      `${(rate * 100).toFixed(0).padStart(5)}%  ${loot.toFixed(0).padStart(7)}  ` +
+      `${reward.toFixed(0).padStart(8)}  ${(rate * (loot + reward)).toFixed(0).padStart(10)}  ` +
+      `${(rate * loot).toFixed(0).padStart(12)}`,
   )
 }
 

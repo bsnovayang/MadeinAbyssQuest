@@ -1,16 +1,23 @@
 import { afflictionById, describeAfflictions, effectiveStats } from '../core/affliction'
 import { formatDepth } from '../core/depth'
 import {
+  activeQuests,
   availableMembers,
   bondBetween,
   bondBonus,
+  currentRank,
   hireCost,
+  isFit,
   loadoutCost,
+  nextRank,
+  openQuests,
   PARTY_SIZE,
+  rosterCap,
   SUPPLY_PRICE,
   type MetaState,
   type RunSummary,
 } from '../core/meta'
+import { MAX_ACTIVE_QUESTS, type Quest } from '../core/quests'
 import { traitsOf } from '../core/traits'
 import type { Character, SupplyKey } from '../core/types'
 import { suppliesWeight } from '../core/weight'
@@ -27,6 +34,10 @@ function summaryPanel(summary: RunSummary | null): string {
   if (!summary) return ''
 
   const lines: string[] = []
+  lines.push(`這一趟花了 ${summary.daysSpent} 天。`)
+  for (const q of summary.questsDone) lines.push(`委託達成：${q.title}　+${q.reward}`)
+  for (const t of summary.questsFailed) lines.push(`委託沒有交差：${t}`)
+
   if (summary.surfaced) {
     lines.push(`帶回的東西值 ${summary.earned}。`)
     if (summary.refunded > 0) lines.push(`沒用完的補給賣回了 ${summary.refunded}。`)
@@ -41,6 +52,7 @@ function summaryPanel(summary: RunSummary | null): string {
     const def = afflictionById(a.affliction)
     lines.push(`${a.name}留下了痕跡 —— ${def?.name ?? a.affliction}。${def?.desc ?? ''}`)
   }
+  if (summary.promoted) lines.push(`組合承認了你的資格。現在是${summary.promoted}。`)
 
   return `
     <section class="report ${summary.surfaced ? 'report--warm' : ''}">
@@ -166,14 +178,18 @@ function memberCard(
     .join('')
 
   const open = expanded === c.id
+  const fit = isFit(c)
 
   return `
-    <div class="roster__card ${chosen ? 'roster__card--on' : ''} ${open ? 'roster__card--open' : ''}">
-      <button class="roster__pick" data-pick="${esc(c.id)}" type="button">
+    <div class="roster__card ${chosen ? 'roster__card--on' : ''} ${open ? 'roster__card--open' : ''} ${
+      fit ? '' : 'roster__card--unfit'
+    }">
+      <button class="roster__pick" data-pick="${esc(c.id)}" type="button" ${fit ? '' : 'disabled'}>
         <span class="roster__name">${esc(c.name)}</span>
         <span class="roster__stats">
-          HP ${stats.maxHp}　耐受 ${stats.maxTolerance}${bonus > 0 ? `<span class="bonus">+${bonus}</span>` : ''}　負重 ${stats.carryCapacity}
+          HP ${c.hp}／${stats.maxHp}　耐受 ${stats.maxTolerance}${bonus > 0 ? `<span class="bonus">+${bonus}</span>` : ''}　負重 ${stats.carryCapacity}
         </span>
+        ${fit ? '' : '<span class="roster__afflictions">傷勢未癒・需要休養</span>'}
         ${c.immuneToCurse ? '<span class="member__note">機械之軀・不受負荷影響</span>' : ''}
         ${traitLine(c)}
         ${marks.length ? `<span class="roster__afflictions">${marks.map(esc).join('・')}</span>` : ''}
@@ -306,7 +322,10 @@ function orphanage(meta: MetaState): string {
   return `
     <section>
       <h2>孤兒院</h2>
-      <p class="hint">費用依能力而定。他們都還沒有下去過。</p>
+      <p class="hint">
+        費用依能力而定。他們都還沒有下去過。
+        名冊 ${meta.roster.filter((c) => c.status === 'alive').length} / ${rosterCap(meta)} 人
+      </p>
       <div class="applicants">${cards}</div>
     </section>`
 }
@@ -329,7 +348,82 @@ function dangerZone(wiping: boolean): string {
     </section>`
 }
 
-export type TownTab = 'party' | 'supply' | 'orphanage' | 'records'
+export type TownTab = 'quests' | 'party' | 'supply' | 'orphanage' | 'records'
+
+function questCard(q: Quest, meta: MetaState, taken: boolean): string {
+  const daysLeft = q.deadline - meta.day
+  const full = activeQuests(meta).length >= MAX_ACTIVE_QUESTS
+
+  return `
+    <div class="quest ${taken ? 'quest--taken' : ''}">
+      <div class="quest__row">
+        <span class="quest__title">${esc(q.title)}</span>
+        <span class="quest__reward">${q.reward}</span>
+      </div>
+      <p class="quest__desc">${esc(q.desc)}</p>
+      <div class="quest__row">
+        <span class="quest__meta">
+          ${q.minDepth > 0 ? `需抵達 ${esc(formatDepth(q.minDepth))}　·　` : ''}剩 ${daysLeft} 日
+        </span>
+        ${
+          taken
+            ? `<button class="ward" data-abandon="${esc(q.id)}" type="button">放棄</button>`
+            : `<button class="ward" data-take="${esc(q.id)}" type="button" ${full ? 'disabled' : ''}>承接</button>`
+        }
+      </div>
+    </div>`
+}
+
+function questBoard(meta: MetaState): string {
+  const taken = activeQuests(meta)
+  const open = openQuests(meta)
+  const rank = currentRank(meta)
+  const next = nextRank(meta)
+
+  const promotion = next
+    ? `
+      <section>
+        <h2>階級　${esc(rank.name)}</h2>
+        <p class="quest__desc">${esc(rank.desc)}</p>
+        <dl class="detail__stats detail__stats--wide">
+          <div>
+            <dt>晉升${esc(next.name)}・委託</dt>
+            <dd>${meta.questsCompleted} / ${next.quests}</dd>
+          </div>
+          <div>
+            <dt>晉升${esc(next.name)}・深度</dt>
+            <dd>${esc(formatDepth(meta.deepestReached))} / ${esc(formatDepth(next.depth))}</dd>
+          </div>
+        </dl>
+        <p class="hint">達成之後回到地表就會自動晉升。階級不限制你能下潛多深，它決定的是接得到什麼委託。</p>
+      </section>`
+    : `
+      <section>
+        <h2>階級　${esc(rank.name)}</h2>
+        <p class="quest__desc">${esc(rank.desc)}</p>
+      </section>`
+
+  return `
+    ${promotion}
+
+    <section>
+      <h2>已承接　${taken.length} / ${MAX_ACTIVE_QUESTS}</h2>
+      ${
+        taken.length
+          ? taken.map((q) => questCard(q, meta, true)).join('')
+          : '<p class="hint">還沒有接下任何委託。空手下去也可以，只是沒有人會付錢。</p>'
+      }
+    </section>
+
+    <section>
+      <h2>公告板</h2>
+      ${open.map((q) => questCard(q, meta, false)).join('')}
+      <div class="actions">
+        <button class="action" data-rest="1" type="button">在城裡待一天</button>
+      </div>
+      <p class="hint">等待會讓傷勢好轉，也會讓委託過期。</p>
+    </section>`
+}
 
 function records(meta: MetaState): string {
   const rate =
@@ -370,8 +464,9 @@ function records(meta: MetaState): string {
 /** 準備一趟探索是有順序的：先決定誰去，才決定帶多少 */
 function tabBar(tab: TownTab, meta: MetaState, selected: string[]): string {
   const tabs: { id: TownTab; label: string; note: string }[] = [
-    { id: 'party', label: '① 隊伍', note: `${selected.length}/${PARTY_SIZE}` },
-    { id: 'supply', label: '② 補給', note: `${loadoutCost(meta.loadout)}` },
+    { id: 'quests', label: '① 委託', note: `${activeQuests(meta).length}/${MAX_ACTIVE_QUESTS}` },
+    { id: 'party', label: '② 隊伍', note: `${selected.length}/${PARTY_SIZE}` },
+    { id: 'supply', label: '③ 補給', note: `${loadoutCost(meta.loadout)}` },
     { id: 'orphanage', label: '孤兒院', note: `${meta.applicants.length}` },
     { id: 'records', label: '紀錄', note: `${meta.graveyard.length}` },
   ]
@@ -459,6 +554,7 @@ export function renderTown(view: TownView): string {
     </section>`
 
   const pages: Record<TownTab, string> = {
+    quests: questBoard(meta),
     party: partyPage,
     supply: supplyPage,
     orphanage: orphanage(meta),
@@ -470,7 +566,7 @@ export function renderTown(view: TownView): string {
       <div class="depth-bar__top">
         <span class="depth-bar__depth">奧斯城</span>
         <span class="depth-bar__layer">
-          資金 ${meta.funds}　·　第 ${meta.runIndex + 1} 趟
+          ${esc(currentRank(meta).name)}　·　資金 ${meta.funds}　·　第 ${meta.day} 日
           <button class="mute" data-mute="1" type="button" title="音效">${muted ? '🔇' : '🔊'}</button>
         </span>
       </div>

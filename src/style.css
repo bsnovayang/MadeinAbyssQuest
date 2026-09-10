@@ -906,6 +906,81 @@ h2 {
   color: #a33d2a;
 }
 
+/* ── 委託 ────────────────────────────────────────────── */
+
+.quest {
+  border: 1px solid var(--paper-edge);
+  border-radius: 3px;
+  padding: 0.5rem 0.7rem;
+  margin-bottom: 0.5rem;
+}
+
+.quest--taken {
+  border-color: var(--accent);
+  background: rgba(122, 139, 63, 0.07);
+}
+
+.quest__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.quest__title {
+  font-weight: 700;
+}
+
+.quest__reward {
+  color: var(--accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.quest__desc {
+  margin: 0.25rem 0;
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+  line-height: 1.7;
+}
+
+.quest__meta {
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.runquests {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+
+.runquests li {
+  padding: 0.2rem 0;
+  border-bottom: 1px dotted var(--paper-edge);
+}
+
+.runquests__title {
+  display: block;
+  color: var(--ink);
+}
+
+.runquests__progress {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+}
+
+.roster__card--unfit {
+  opacity: 0.6;
+}
+
+.roster__card--unfit .roster__pick {
+  cursor: default;
+}
+
 /* ── 隊員詳細 ────────────────────────────────────────── */
 
 .roster__card--open {
