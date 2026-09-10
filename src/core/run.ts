@@ -88,6 +88,40 @@ export function createRun(seed: string, options: RunOptions = {}): RunState {
   return state
 }
 
+/**
+ * 讀取舊存檔時補齊後來才加上的欄位。
+ *
+ * RunState 一路長出了 echoes、battle、aftermath —— 每加一個欄位，
+ * 舊存檔就多一種炸掉的方式。存檔是系統邊界，補齊要在這裡做，
+ * 而不是散在每個讀取它的地方。
+ */
+export function normalizeRun(run: RunState): RunState {
+  run.party ??= []
+  run.echoes ??= []
+  run.carried ??= []
+  run.log ??= []
+  run.choices ??= []
+  run.aftermath ??= []
+  run.battle ??= null
+  run.supplies ??= startingSupplies()
+  run.burden ??= { mode: 'spread', targetId: null }
+  run.exhaustion ??= 0
+  run.daysElapsed ??= 0
+  run.ascentSteps ??= 0
+  run.maxDepthReached ??= run.depth ?? 0
+  run.nextLogId ??= run.log.length + 1
+  run.nextNodeId ??= run.choices.length + 1
+
+  for (const c of run.party) {
+    c.afflictions ??= []
+    c.traits ??= []
+    c.bonds ??= {}
+    c.bio ??= ''
+  }
+
+  return run
+}
+
 // ─── 衍生狀態 ────────────────────────────────────────────────
 
 export function aliveMembers(state: RunState): Character[] {

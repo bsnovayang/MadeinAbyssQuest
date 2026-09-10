@@ -31,6 +31,7 @@ import {
   dropItem,
   dropSupply,
   moveTo,
+  normalizeRun,
   resumeDescent,
   setBurden,
   useAnchor,
@@ -558,7 +559,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     const saved = await deps.load?.()
     if (saved) {
       meta = normalizeMeta(saved.meta)
-      run = saved.run
+      run = saved.run ? normalizeRun(saved.run) : null
     }
     if (!run) replenish(meta)
     root.addEventListener('click', handleClick)

@@ -2,6 +2,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createApp, type App } from '../app'
 import { isMuted } from '../audio'
+import { createMeta, deployParty } from '../../core/meta'
+import { createRun } from '../../core/run'
 
 let root: HTMLDivElement
 let app: App
@@ -683,6 +685,63 @@ describe('停用的按鈕都要說得出原因', () => {
 describe('音效', () => {
   it('預設是關閉的 —— 難聽的音樂比沒有音樂更傷氣氛', () => {
     expect(isMuted()).toBe(true)
+  })
+})
+
+/**
+ * RunState 一路長出了 echoes、battle、aftermath ——
+ * 每加一個欄位，舊存檔就多一種炸掉的方式。
+ * 存檔是系統邊界，補齊要在讀取時做。
+ */
+describe('舊存檔', () => {
+  async function bootWith(run: unknown): Promise<{ app: App; hit: (sel: string) => void }> {
+    const r2 = document.createElement('div')
+    document.body.appendChild(r2)
+    const meta = createMeta()
+    const a2 = createApp(r2, {
+      pace: 0,
+      seed: () => 's',
+      load: () => Promise.resolve({ version: 1 as const, meta, run: run as never }),
+    })
+    await a2.start()
+    return {
+      app: a2,
+      hit: (sel) =>
+        r2
+          .querySelector<HTMLElement>(sel)!
+          .dispatchEvent(new window.MouseEvent('click', { bubbles: true })),
+    }
+  }
+
+  it('缺少 aftermath 的舊存檔照樣能結算回城', async () => {
+    const base = createRun('legacy', { party: deployParty(createMeta(), ['riko', 'reg']) })
+    base.over = true
+    base.endReason = 'surfaced'
+
+    // 模擬舊版本存下來的資料
+    const legacy = { ...base } as Record<string, unknown>
+    delete legacy.aftermath
+    delete legacy.echoes
+    delete legacy.battle
+
+    const { app: a2, hit } = await bootWith(legacy)
+    expect(a2.snapshot().view).toBe('run')
+
+    // 這一步以前會丟 run.aftermath is not iterable
+    expect(() => hit('[data-return]')).not.toThrow()
+    expect(a2.snapshot().view).toBe('town')
+  })
+
+  it('隊員缺少後來才加的欄位也不會炸', async () => {
+    const base = createRun('legacy2', { party: deployParty(createMeta(), ['riko']) })
+    for (const c of base.party) {
+      delete (c as unknown as Record<string, unknown>).traits
+      delete (c as unknown as Record<string, unknown>).bio
+    }
+
+    const { app: a2 } = await bootWith(base)
+    expect(a2.snapshot().run?.party[0]?.traits).toEqual([])
+    expect(a2.snapshot().run?.party[0]?.bio).toBe('')
   })
 })
 
