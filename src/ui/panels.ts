@@ -4,7 +4,7 @@
  * 原則：畫面上預設只留「必要資訊 + 動作按鈕」，其餘點了才展開。
  * 探索的每一步都是一次決策，捲動找不到選項就是設計失敗。
  */
-export type PanelId = 'party' | 'supply' | 'quests' | 'notes' | 'battlelog'
+export type PanelId = 'relics' | 'party' | 'supply' | 'quests' | 'notes' | 'battlelog'
 
 export interface PanelState {
   /** 明確被使用者開關過的面板。沒有紀錄的就用預設 */

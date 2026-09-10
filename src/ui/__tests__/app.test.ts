@@ -182,6 +182,32 @@ describe('探索畫面的收合', () => {
     expect(exists('.member__fc')).toBe(true)
   })
 
+  /**
+   * 不只是版面 —— 不動之楔按下去就永久失去一名隊友，
+   * 這種東西不該是隨手誤觸得到的大按鈕。
+   */
+  it('遺物收在面板裡，展開才按得到', () => {
+    app.snapshot().run!.carried.push({
+      id: 'r1',
+      name: '不動之楔',
+      weight: 6,
+      kind: 'relic',
+      value: 900,
+      identified: true,
+      relicId: 'immovable-wedge',
+    })
+    click('[data-panel="supply"]') // 觸發重繪
+
+    const head = root.querySelector('[data-panel="relics"]')!
+    expect(head.textContent).toContain('遺物')
+    expect(head.textContent).toContain('1')
+    expect(exists('[data-relic]')).toBe(false)
+
+    click('[data-panel="relics"]')
+    expect(exists('[data-relic]')).toBe(true)
+    expect(root.querySelector('.relic')?.textContent).toContain('全隊立即返回地表')
+  })
+
   it('快要害死人的事情會浮到狀態列', () => {
     const run = app.snapshot().run!
     run.exhaustion = 3

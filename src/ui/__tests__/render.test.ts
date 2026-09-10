@@ -6,7 +6,7 @@ import type { PanelState } from '../panels'
 
 /** 面板預設收合，測試需要看內容就全部展開 */
 const allOpen = (): PanelState => ({
-  explicit: { party: true, supply: true, quests: true, notes: true },
+  explicit: { relics: true, party: true, supply: true, quests: true, notes: true },
 })
 
 const ui = (deltas: HpDeltas = {}) => ({ deltas, muted: false, panels: allOpen() })

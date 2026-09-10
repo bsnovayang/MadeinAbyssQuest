@@ -392,20 +392,6 @@ function actions(state: RunState): string {
     )
     .join('')
 
-  // 只寫代價不寫效果，等於叫玩家別按。按鈕必須自己說明白它是做什麼的
-  const relicButtons = escapeRelics(state)
-    .map((i) => {
-      const def = relicById(i.relicId ?? '')
-      if (!def) return ''
-      return `
-        <button class="relic" data-relic="${esc(i.id)}" type="button">
-          <span class="relic__name">${esc(def.name)}</span>
-          <span class="relic__effect">${esc(def.effect)}</span>
-          <span class="relic__cost">代價　${esc(def.cost)}</span>
-        </button>`
-    })
-    .join('')
-
   return `
     <section class="deck">
       <h2>${up ? '往上' : '往下'}</h2>
@@ -426,16 +412,33 @@ function actions(state: RunState): string {
             : `<button class="action action--key" data-ascent="1" type="button">開始撤離</button>`
         }
       </div>
-      ${
-        relicButtons
-          ? `<div class="relics">
-               <h2>遺物・立刻脫離</h2>
-               <p class="hint">按下去就直接回到地表，剩下的路不必走。但代價一定會發生。</p>
-               ${relicButtons}
-             </div>`
-          : ''
-      }
     </section>`
+}
+
+/**
+ * 遺物收在面板裡。
+ *
+ * 不只是為了版面 —— 不動之楔按下去就永久失去一名隊友，
+ * 這種東西不該是隨手誤觸得到的大按鈕。多一次展開是刻意的防呆。
+ */
+function relicBody(state: RunState): string {
+  const buttons = escapeRelics(state)
+    .map((i) => {
+      const def = relicById(i.relicId ?? '')
+      if (!def) return ''
+      // 只寫代價不寫效果，等於叫玩家別按
+      return `
+        <button class="relic" data-relic="${esc(i.id)}" type="button">
+          <span class="relic__name">${esc(def.name)}</span>
+          <span class="relic__effect">${esc(def.effect)}</span>
+          <span class="relic__cost">代價　${esc(def.cost)}</span>
+        </button>`
+    })
+    .join('')
+
+  return `
+    <p class="hint">按下去就直接回到地表，剩下的路不必走。但代價一定會發生。</p>
+    <div class="relics">${buttons}</div>`
 }
 
 // ─── 組裝 ────────────────────────────────────────────────────
@@ -462,6 +465,7 @@ export function render(state: RunState, ui: UiState): string {
   const up = state.direction === 'up'
   const alive = state.party.filter((c) => c.status === 'alive').length
   const questCount = ui.quests?.length ?? 0
+  const relicCount = escapeRelics(state).length
 
   // 撤離時預設攤開隊伍，因為用藥與轉嫁都在那裡
   const open = (id: Parameters<typeof isPanelOpen>[1], fallback: boolean) =>
@@ -471,6 +475,7 @@ export function render(state: RunState, ui: UiState): string {
     ${statusBar(state, ui)}
     <div class="town-page">
       ${actions(state)}
+      ${relicCount ? panel('relics', '遺物・立刻脫離', `${relicCount}`, open('relics', false), relicBody(state)) : ''}
       ${panel('party', '隊伍', `${alive} 人`, open('party', up), partyBody(state, ui))}
       ${panel('supply', '補給與行李', `${state.carried.length} 件`, open('supply', false), supplyBody(state))}
       ${questCount ? panel('quests', '委託', `${questCount}`, open('quests', false), questBody(ui)) : ''}
