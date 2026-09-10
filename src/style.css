@@ -1,0 +1,424 @@
+/*
+ * 視覺方向見 企劃書 15 章：外觀溫馨、敘事恐怖。
+ * 刻意不使用 grimdark 配色 —— 溫暖的紙張是恐怖的載體，不是妥協。
+ */
+
+:root {
+  --paper: #f4ecd8;
+  --paper-edge: #e6d9be;
+  --rule: #ded0b2;
+  --ink: #3f3226;
+  --ink-soft: #6d5c48;
+  --ink-faint: #9c8b76;
+  --warm: #a8622a;
+  --cold: #5a6b74;
+  --grim: #8a8177;
+  --accent: #7a8b3f;
+
+  --font: "Iowan Old Style", "Palatino Linotype", "Songti TC", "PingFang TC",
+    "Microsoft JhengHei", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font);
+  color: var(--ink);
+  background: #2e2822;
+  line-height: 1.65;
+  -webkit-text-size-adjust: 100%;
+}
+
+#app {
+  max-width: 1100px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  background: var(--paper);
+  background-image:
+    repeating-linear-gradient(
+      transparent,
+      transparent 1.62rem,
+      var(--rule) 1.62rem,
+      var(--rule) calc(1.62rem + 1px)
+    );
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.45);
+  padding: 1rem 1rem 3rem;
+}
+
+/* ── 深度計：全畫面最重要的常駐元素（企劃書 17-1）─────────── */
+
+.depth-bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: -1rem -1rem 1rem;
+  padding: 0.7rem 1rem 0.6rem;
+  background: var(--paper);
+  border-bottom: 2px solid var(--ink);
+}
+
+.depth-bar__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.depth-bar__depth {
+  font-size: 1.9rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.depth-bar__layer {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+
+.depth-bar__track {
+  margin-top: 0.4rem;
+  height: 4px;
+  background: var(--paper-edge);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.depth-bar__fill {
+  height: 100%;
+  background: var(--ink-soft);
+  transition: width 600ms ease;
+}
+
+/* ── 版面：手機單欄，桌機雙欄（企劃書 17）───────────────── */
+
+.layout {
+  display: grid;
+  gap: 1.4rem;
+}
+
+@media (min-width: 860px) {
+  .layout {
+    grid-template-columns: 22rem 1fr;
+    align-items: start;
+  }
+
+  .col-left {
+    position: sticky;
+    top: 6.2rem;
+  }
+}
+
+section {
+  margin-bottom: 1.4rem;
+}
+
+h2 {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--ink-faint);
+  margin: 0 0 0.5rem;
+  text-transform: none;
+}
+
+/* ── 隊伍 ──────────────────────────────────────────────── */
+
+.member {
+  padding: 0.35rem 0;
+  border-bottom: 1px dashed var(--paper-edge);
+}
+
+.member__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.member__name {
+  font-weight: 700;
+}
+
+.member__hp {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.95rem;
+}
+
+/* 傷害回饋：不用飄字，用手寫修正（企劃書 16-1） */
+.member__hp s {
+  color: var(--ink-faint);
+  margin-right: 0.3em;
+  text-decoration-thickness: 1px;
+}
+
+.member__hp .changed {
+  color: var(--warm);
+}
+
+.member__track {
+  margin-top: 0.25rem;
+  height: 3px;
+  background: var(--paper-edge);
+}
+
+.member__fill {
+  height: 100%;
+  background: var(--ink-soft);
+  transition: width 400ms ease;
+}
+
+.member--dead .member__name,
+.member--dead .member__hp {
+  color: var(--grim);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.member--dead .member__fill {
+  background: var(--grim);
+}
+
+.member__note {
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+}
+
+/* ── 補給與負重 ─────────────────────────────────────────── */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat {
+  text-align: center;
+}
+
+.stat__label {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+}
+
+.stat__value {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.stat--empty .stat__value {
+  color: var(--grim);
+}
+
+.load {
+  margin-top: 0.6rem;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.load--over {
+  color: var(--warm);
+}
+
+.load--critical {
+  color: var(--warm);
+  font-weight: 700;
+}
+
+.carried {
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.88rem;
+}
+
+.carried li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.15rem 0;
+  border-bottom: 1px dotted var(--paper-edge);
+}
+
+.carried__drop {
+  border: none;
+  background: none;
+  color: var(--ink-faint);
+  font-family: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0 0.2rem;
+}
+
+.carried__drop:hover {
+  color: var(--warm);
+}
+
+/* ── 筆記本紀錄 ─────────────────────────────────────────── */
+
+.log {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.log__entry {
+  display: grid;
+  grid-template-columns: 4.4rem 1fr;
+  gap: 0.6rem;
+  padding: 0.18rem 0;
+  animation: ink-in 420ms ease both;
+}
+
+.log__depth {
+  color: var(--ink-faint);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  padding-top: 0.18rem;
+}
+
+.log__text--warm {
+  color: var(--warm);
+}
+
+.log__text--cold {
+  color: var(--cold);
+}
+
+/* 重大事件刻意克制：字距拉開，不加特效（企劃書 16-1） */
+.log__text--grim {
+  color: var(--grim);
+  letter-spacing: 0.12em;
+}
+
+@keyframes ink-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── 抉擇 ──────────────────────────────────────────────── */
+
+.choices {
+  display: grid;
+  gap: 0.6rem;
+}
+
+@media (min-width: 560px) {
+  .choices {
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  }
+}
+
+.choice {
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--ink);
+  text-align: left;
+  background: transparent;
+  border: 1.5px solid var(--ink-soft);
+  border-radius: 3px;
+  padding: 0.65rem 0.8rem;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.choice:hover:not(:disabled) {
+  background: rgba(122, 139, 63, 0.12);
+}
+
+.choice:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.choice:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.choice__kind {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+  letter-spacing: 0.1em;
+}
+
+.actions {
+  margin-top: 0.8rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.action {
+  font-family: inherit;
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px dashed var(--ink-faint);
+  border-radius: 3px;
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+}
+
+.action:hover:not(:disabled) {
+  color: var(--ink);
+  border-style: solid;
+}
+
+.action:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* ── 節奏：重要的事情要慢（企劃書 16-3、16-6）──────────── */
+
+/* 負荷／死亡的表現是「靜止」，不是震動 */
+.app--held {
+  pointer-events: none;
+}
+
+.app--held .log__entry:last-child {
+  animation: none;
+}
+
+.ended {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-top: 2px solid var(--ink);
+}
+
+.ended__title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--grim);
+}
+
+.ended__body {
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+}
+
+.seed {
+  margin-top: 2rem;
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+}
