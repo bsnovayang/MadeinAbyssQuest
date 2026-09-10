@@ -1,9 +1,11 @@
 import { afflictionById } from '../core/affliction'
 import {
+  adjustLoadout,
   concludeRun,
   createMeta,
   deployParty,
   hire,
+  loadoutCost,
   normalizeMeta,
   PARTY_SIZE,
   replenish,
@@ -210,7 +212,16 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
   function depart(): void {
     const party = deployParty(meta, selected)
     if (party.length === 0) return
-    run = createRun(nextSeed(), { party, echoes: meta.lostSouls })
+
+    const cost = loadoutCost(meta.loadout)
+    if (cost > meta.funds) return
+    meta.funds -= cost
+
+    run = createRun(nextSeed(), {
+      party,
+      echoes: meta.lostSouls,
+      supplies: meta.loadout,
+    })
     summary = null
     audio.reset()
     root.classList.remove('mood--camp')
@@ -293,6 +304,15 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
 
     if (d.hire) {
       if (!hire(meta, d.hire)) return
+      paint()
+      persist()
+      return
+    }
+
+    if (d.buy) {
+      const [key, delta] = d.buy.split(':')
+      if (!key || !delta) return
+      adjustLoadout(meta, key as SupplyKey, Number(delta))
       paint()
       persist()
       return

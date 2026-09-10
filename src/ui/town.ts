@@ -5,11 +5,15 @@ import {
   bondBetween,
   bondBonus,
   hireCost,
+  loadoutCost,
   PARTY_SIZE,
+  SUPPLY_PRICE,
   type MetaState,
   type RunSummary,
 } from '../core/meta'
-import type { Character } from '../core/types'
+import { traitsOf } from '../core/traits'
+import type { Character, SupplyKey } from '../core/types'
+import { suppliesWeight } from '../core/weight'
 
 function esc(s: string): string {
   return s.replace(
@@ -25,6 +29,7 @@ function summaryPanel(summary: RunSummary | null): string {
   const lines: string[] = []
   if (summary.surfaced) {
     lines.push(`帶回的東西值 ${summary.earned}。`)
+    if (summary.refunded > 0) lines.push(`沒用完的補給賣回了 ${summary.refunded}。`)
     if (summary.survivors.length) lines.push(`回來的人：${summary.survivors.join('、')}。`)
   } else {
     lines.push('沒有人回來。')
@@ -42,6 +47,17 @@ function summaryPanel(summary: RunSummary | null): string {
       <h2>上一趟</h2>
       ${lines.map((l) => `<p class="report__line">${esc(l)}</p>`).join('')}
     </section>`
+}
+
+function traitLine(c: Character): string {
+  const traits = traitsOf(c)
+  if (traits.length === 0) return ''
+  return `<span class="roster__traits">${traits
+    .map(
+      (t) =>
+        `<span class="trait ${t.signature ? 'trait--signature' : ''}" title="${esc(t.desc)}">${esc(t.name)}</span>`,
+    )
+    .join('')}</span>`
 }
 
 function memberCard(c: Character, selected: string[], meta: MetaState): string {
@@ -84,11 +100,72 @@ function memberCard(c: Character, selected: string[], meta: MetaState): string {
           HP ${stats.maxHp}　耐受 ${stats.maxTolerance}${bonus > 0 ? `<span class="bonus">+${bonus}</span>` : ''}　負重 ${stats.carryCapacity}
         </span>
         ${c.immuneToCurse ? '<span class="member__note">機械之軀・不受負荷影響</span>' : ''}
+        ${traitLine(c)}
         ${marks.length ? `<span class="roster__afflictions">${marks.map(esc).join('・')}</span>` : ''}
         ${bondList ? `<span class="roster__bonds">羈絆　${bondList}</span>` : ''}
       </button>
       ${cures ? `<div class="member__btns">${cures}</div>` : ''}
     </div>`
+}
+
+const SUPPLY_LABEL: Readonly<Record<SupplyKey, string>> = {
+  food: '食物',
+  water: '水',
+  rope: '繩索',
+  medicine: '藥品',
+}
+
+/**
+ * 補給商。錢限制前期買不買得起，負重限制全程帶不帶得動 ——
+ * 兩者一起，「帶多少下去」才是一個真的決策（企劃書 8-1）。
+ */
+function supplyShop(meta: MetaState, selected: string[]): string {
+  const keys = Object.keys(SUPPLY_LABEL) as SupplyKey[]
+  const cost = loadoutCost(meta.loadout)
+  const weight = suppliesWeight(meta.loadout)
+  const party = selected
+    .map((id) => meta.roster.find((c) => c.id === id))
+    .filter((c): c is Character => !!c)
+  const capacity = party.reduce((sum, c) => sum + effectiveStats(c).carryCapacity, 0)
+  const spare = capacity - weight
+
+  const rows = keys
+    .map((k) => {
+      const n = meta.loadout[k]
+      const canAdd = cost + SUPPLY_PRICE[k] <= meta.funds
+      return `
+        <div class="buy">
+          <span class="buy__name">${SUPPLY_LABEL[k]}<span class="buy__unit">${SUPPLY_PRICE[k]}／個</span></span>
+          <span class="buy__controls">
+            <button class="ward" data-buy="${k}:-1" type="button" ${n > 0 ? '' : 'disabled'}>−</button>
+            <span class="buy__count">${n}</span>
+            <button class="ward" data-buy="${k}:1" type="button" ${canAdd ? '' : 'disabled'}>＋</button>
+          </span>
+        </div>`
+    })
+    .join('')
+
+  return `
+    <section>
+      <h2>補給商</h2>
+      <div class="buys">${rows}</div>
+      <div class="buy__total">
+        合計 ${cost}　·　重量 ${weight.toFixed(1)}kg
+        ${
+          capacity > 0
+            ? `／隊伍可負重 ${capacity}kg<span class="${spare < 0 ? 'buy__over' : 'buy__spare'}">　${
+                spare < 0 ? `超重 ${(-spare).toFixed(1)}kg` : `戰利品空間 ${spare.toFixed(1)}kg`
+              }</span>`
+            : ''
+        }
+      </div>
+      ${
+        capacity > 0 && spare < 0
+          ? '<p class="hint">補給就已經超重了，一步也走不動。少帶一點，或多帶一個人。</p>'
+          : ''
+      }
+      <p class="hint">沒用完的補給回來後會以半價賣回。全滅的話什麼都不剩。</p>
+    </section>`
 }
 
 function graveyard(meta: MetaState): string {
@@ -131,6 +208,7 @@ function orphanage(meta: MetaState): string {
             <span class="applicant__cost ${afford ? '' : 'applicant__cost--no'}">${cost}</span>
           </div>
           <span class="roster__stats">HP ${c.maxHp}　耐受 ${c.maxTolerance}　負重 ${c.carryCapacity}</span>
+          ${traitLine(c)}
           <button class="action" data-hire="${esc(c.id)}" type="button" ${afford ? '' : 'disabled'}>
             帶他走
             ${afford ? '' : '<span class="action__why">資金不足</span>'}
@@ -173,7 +251,10 @@ export function renderTown(
   wiping = false,
 ): string {
   const available = availableMembers(meta)
-  const canDepart = selected.length > 0 && selected.length <= PARTY_SIZE
+  const cost = loadoutCost(meta.loadout)
+  const affordable = cost <= meta.funds
+  const canDepart = selected.length > 0 && selected.length <= PARTY_SIZE && affordable
+  const departWhy = selected.length === 0 ? '還沒有決定誰要下去' : '買不起這批補給'
 
   const pairs = selected
     .flatMap((a, i) =>
@@ -201,6 +282,7 @@ export function renderTown(
     <div class="layout">
       <div class="col-left">
         ${summaryPanel(summary)}
+        ${supplyShop(meta, selected)}
         ${orphanage(meta)}
         ${graveyard(meta)}
         ${dangerZone(wiping)}
@@ -217,8 +299,8 @@ export function renderTown(
           }
           <div class="actions">
             <button class="action action--key" data-depart="1" type="button" ${canDepart ? '' : 'disabled'}>
-              ${canDepart ? `出發下潛（${selected.length} 人）` : '出發下潛'}
-              ${canDepart ? '' : '<span class="action__why">還沒有決定誰要下去</span>'}
+              ${canDepart ? `出發下潛（${selected.length} 人・補給 ${cost}）` : '出發下潛'}
+              ${canDepart ? '' : `<span class="action__why">${departWhy}</span>`}
             </button>
           </div>
           ${canDepart ? '' : '<p class="hint hint--depart">點名冊上的人把他們編進隊伍。最多四個人。</p>'}

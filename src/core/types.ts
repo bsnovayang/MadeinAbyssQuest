@@ -16,6 +16,8 @@ export interface Character {
   status: 'alive' | 'dead' | 'lost'
   /** 永久損傷的 id，跨場次保留。可重複（例如多次失去） */
   afflictions: string[]
+  /** 探索用的被動能力（見 core/traits.ts）。具名角色的招牌能力也放這裡 */
+  traits: string[]
   /** 與其他隊員的共同生還次數 */
   bonds: Record<string, number>
 }

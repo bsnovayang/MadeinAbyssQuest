@@ -4,12 +4,14 @@
  */
 import { formatDepth, layerAt } from '../depth'
 import {
+  clampLoadoutToFunds,
   availableMembers,
   concludeRun,
   createMeta,
   deployParty,
   hire,
   hireCost,
+  loadoutCost,
   PARTY_SIZE,
   replenish,
 } from '../meta'
@@ -108,7 +110,15 @@ function campaign(runs: number, turnAt: number) {
     const ids = availableMembers(meta)
       .slice(0, PARTY_SIZE)
       .map((c) => c.id)
-    const s = createRun(`c-${i}`, { party: deployParty(meta, ids), echoes: meta.lostSouls })
+
+    clampLoadoutToFunds(meta)
+    meta.funds -= loadoutCost(meta.loadout)
+
+    const s = createRun(`c-${i}`, {
+      party: deployParty(meta, ids),
+      echoes: meta.lostSouls,
+      supplies: meta.loadout,
+    })
 
     let guard = 0
     while (!s.over && s.depth < turnAt && guard++ < 300) {

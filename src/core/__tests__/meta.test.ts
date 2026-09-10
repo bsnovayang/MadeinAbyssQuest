@@ -4,9 +4,12 @@ import {
   availableMembers,
   bondBetween,
   bondBonus,
+  clampLoadoutToFunds,
   concludeRun,
   createMeta,
   deployParty,
+  loadoutCost,
+  MINIMUM_KIT,
   recruit,
   replenish,
   ROSTER_FLOOR,
@@ -206,7 +209,6 @@ describe('屍體處理', () => {
 
 describe('結算與招募', () => {
   it('活著回到地表才能變現', () => {
-    const meta = createMeta()
     const loot = {
       id: 'l1',
       name: '獸骨結晶',
@@ -217,22 +219,28 @@ describe('結算與招募', () => {
     }
 
     const wiped = createMeta()
-    concludeRun(
+    const wipedBefore = wiped.funds
+    const wipedSummary = concludeRun(
       wiped,
       finishedRun(wiped, (r) => {
         r.endReason = 'wiped'
         r.carried.push(loot)
       }),
     )
-    expect(wiped.funds).toBe(0)
+    expect(wipedSummary.earned).toBe(0)
+    expect(wipedSummary.refunded).toBe(0)
+    expect(wiped.funds).toBe(wipedBefore)
 
-    concludeRun(meta, finishedRun(meta, (r) => r.carried.push(loot)))
-    expect(meta.funds).toBe(500)
+    const meta = createMeta()
+    const before = meta.funds
+    const summary = concludeRun(meta, finishedRun(meta, (r) => r.carried.push(loot)))
+    expect(summary.earned).toBe(500)
+    expect(meta.funds).toBe(before + summary.earned + summary.refunded)
   })
 
   it('遺體不會被拿去賣', () => {
     const meta = createMeta()
-    concludeRun(
+    const summary = concludeRun(
       meta,
       finishedRun(meta, (r) => {
         const tobi = r.party.find((c) => c.id === 'tobi')!
@@ -248,7 +256,29 @@ describe('結算與招募', () => {
         })
       }),
     )
-    expect(meta.funds).toBe(0)
+    expect(summary.earned).toBe(0)
+  })
+
+  it('沒用完的補給會半價賣回，全滅則什麼都不剩', () => {
+    const meta = createMeta()
+    const summary = concludeRun(
+      meta,
+      finishedRun(meta, (r) => {
+        r.supplies = { food: 4, water: 6, rope: 1, medicine: 1 }
+      }),
+    )
+    // (4*12 + 6*8 + 1*20 + 1*45) / 2
+    expect(summary.refunded).toBe(Math.floor((48 + 48 + 20 + 45) / 2))
+
+    const wiped = createMeta()
+    const wipedSummary = concludeRun(
+      wiped,
+      finishedRun(wiped, (r) => {
+        r.endReason = 'wiped'
+        r.supplies = { food: 9, water: 9, rope: 9, medicine: 9 }
+      }),
+    )
+    expect(wipedSummary.refunded).toBe(0)
   })
 
   it('孤兒院永遠會給你新的孩子', () => {
@@ -269,8 +299,34 @@ describe('結算與招募', () => {
 
     const added = replenish(meta)
     expect(added.length).toBe(ROSTER_FLOOR)
-    expect(meta.funds).toBe(0) // 孤兒院不收錢
     expect(availableMembers(meta).length).toBe(ROSTER_FLOOR)
+    // 孤兒院不收錢，資金只會因為組合的最低配給而上升
+    expect(meta.funds).toBeGreaterThanOrEqual(0)
+  })
+
+  it('破產時組合保證最低限度的補給買得起', () => {
+    const meta = createMeta()
+    meta.funds = 0
+    replenish(meta)
+
+    expect(meta.funds).toBe(loadoutCost(MINIMUM_KIT))
+    expect(loadoutCost(meta.loadout)).toBeLessThanOrEqual(meta.funds)
+    expect(meta.loadout.water).toBeGreaterThan(0)
+  })
+
+  it('資金縮水時採購單會自動調降，不會出現買不起的死結', () => {
+    const meta = createMeta()
+    meta.loadout = { food: 30, water: 40, rope: 9, medicine: 9 }
+    meta.funds = 300
+    clampLoadoutToFunds(meta)
+    expect(loadoutCost(meta.loadout)).toBeLessThanOrEqual(300)
+  })
+
+  it('有錢的時候組合不會多給', () => {
+    const meta = createMeta()
+    meta.funds = 5000
+    replenish(meta)
+    expect(meta.funds).toBe(5000)
   })
 
   it('人手足夠時不會硬塞新人', () => {

@@ -13,6 +13,7 @@ const member = (id: string, cap: number, status: Character['status'] = 'alive'):
   immuneToCurse: false,
   status,
   afflictions: [],
+  traits: [],
   bonds: {},
 })
 

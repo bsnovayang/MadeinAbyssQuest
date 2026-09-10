@@ -9,6 +9,7 @@ import {
   loadOf,
   totalValue,
 } from '../core/run'
+import { partyBehaviors } from '../core/traits'
 import type { NodeKind, RunState, Supplies } from '../core/types'
 import { capacityOf } from '../core/weight'
 import { relicById } from '../data/relics'
@@ -277,11 +278,19 @@ function actions(state: RunState): string {
   const up = state.direction === 'up'
   const blocked = !canMove(state)
 
+  /**
+   * 沒有測繪的人，就只有筆記上的描述可以判斷 ——
+   * 「濃重的獸臭」本來就在告訴你那是什麼，只是沒有人替你寫下標籤（企劃書 14 章）。
+   */
+  const survey = partyBehaviors(state.party).survey
+
   const buttons = state.choices
     .map(
       (n) => `
         <button class="choice" data-node="${esc(n.id)}" type="button" ${blocked ? 'disabled' : ''}>
-          <span class="choice__kind">${KIND_LABEL[n.kind]}</span>
+          <span class="choice__kind ${survey ? '' : 'choice__kind--unknown'}">
+            ${survey ? KIND_LABEL[n.kind] : '？'}
+          </span>
           ${esc(n.label)}
         </button>`,
     )

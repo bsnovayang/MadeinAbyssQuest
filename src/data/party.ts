@@ -14,6 +14,7 @@ export function startingParty(): Character[] {
       immuneToCurse: false,
       status: 'alive',
       afflictions: [],
+      traits: ['abyss-lore'],
       bonds: {},
     },
     {
@@ -27,6 +28,7 @@ export function startingParty(): Character[] {
       immuneToCurse: true,
       status: 'alive',
       afflictions: [],
+      traits: ['extend-arm'],
       bonds: {},
     },
     {
@@ -40,6 +42,7 @@ export function startingParty(): Character[] {
       immuneToCurse: false,
       status: 'alive',
       afflictions: [],
+      traits: ['survey'],
       bonds: {},
     },
     {
@@ -53,6 +56,7 @@ export function startingParty(): Character[] {
       immuneToCurse: false,
       status: 'alive',
       afflictions: [],
+      traits: ['apprentice'],
       bonds: {},
     },
   ]

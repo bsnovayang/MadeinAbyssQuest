@@ -2,6 +2,7 @@ import { distributeBurden, hasWardRelic, tierFor } from './curse'
 import { layerAt, threatAt, valueMultiplier, waterCostAt } from './depth'
 import { generateChoices, makeNode } from './map'
 import { hashSeed, nextInt, pick } from './rng'
+import { partyBehaviors } from './traits'
 import type {
   AbyssNode,
   BurdenMode,
@@ -10,6 +11,7 @@ import type {
   LogTone,
   LostSoul,
   RunState,
+  Supplies,
   SupplyKey,
 } from './types'
 import {
@@ -27,6 +29,7 @@ import { RELIC_DEFS, relicById } from '../data/relics'
 export interface RunOptions {
   party?: Character[]
   echoes?: LostSoul[]
+  supplies?: Supplies
 }
 
 export function createRun(seed: string, options: RunOptions = {}): RunState {
@@ -42,7 +45,7 @@ export function createRun(seed: string, options: RunOptions = {}): RunState {
     direction: 'down',
     party: options.party ?? startingParty(),
     echoes: options.echoes ?? [],
-    supplies: startingSupplies(),
+    supplies: { ...(options.supplies ?? startingSupplies()) },
     carried: [],
     exhaustion: 0,
     daysElapsed: 0,
@@ -84,7 +87,11 @@ export function canMove(state: RunState): boolean {
 }
 
 export function canCamp(state: RunState): boolean {
-  return !state.over && state.current.kind === 'rest' && state.supplies.food >= 1
+  return (
+    !state.over &&
+    state.current.kind === 'rest' &&
+    state.supplies.food >= campFoodCost(state)
+  )
 }
 
 export function canUseAnchor(state: RunState): boolean {
@@ -298,15 +305,20 @@ function surface(state: RunState, text: string): void {
 
 // ─── 其他動作 ────────────────────────────────────────────────
 
+export function campFoodCost(state: RunState): number {
+  return 1 + partyBehaviors(state.party).appetite
+}
+
 export function camp(state: RunState): void {
   if (!canCamp(state)) return
 
-  state.supplies.food -= 1
+  const behaviors = partyBehaviors(state.party)
+  state.supplies.food = Math.max(0, state.supplies.food - campFoodCost(state))
   state.daysElapsed += 1
 
   for (const c of aliveMembers(state)) {
     c.hp = Math.min(c.maxHp, c.hp + Math.ceil(c.maxHp * 0.3))
-    c.tolerance = Math.min(c.maxTolerance, c.tolerance + 4)
+    c.tolerance = Math.min(c.maxTolerance, c.tolerance + 4 + behaviors.camp)
   }
 
   if (state.exhaustion > 0) state.exhaustion = Math.max(0, state.exhaustion - 1)
@@ -356,9 +368,12 @@ function resolveNode(state: RunState, node: AbyssNode): void {
       break
 
     case 'forage': {
-      const [gainFood, s1] = nextInt(state.rngState, 0, 2)
-      const [gainWater, s2] = nextInt(s1, 1, 3)
+      const bonus = partyBehaviors(state.party).forage
+      const [rawFood, s1] = nextInt(state.rngState, 0, 2)
+      const [rawWater, s2] = nextInt(s1, 1, 3)
       state.rngState = s2
+      const gainFood = Math.max(0, rawFood + bonus)
+      const gainWater = Math.max(0, rawWater + bonus)
       state.supplies.food += gainFood
       state.supplies.water += gainWater
       push(state, `${node.label}。補充了食物 ${gainFood}、水 ${gainWater}。`, 'warm')
@@ -370,7 +385,9 @@ function resolveNode(state: RunState, node: AbyssNode): void {
       break
 
     case 'obstacle':
-      if (state.supplies.rope > 0) {
+      if (partyBehaviors(state.party).ropeless) {
+        push(state, `${node.label}。雷格伸長手臂，把所有人送了過去。`, 'plain')
+      } else if (state.supplies.rope > 0) {
         state.supplies.rope -= 1
         push(state, `${node.label}。架設繩索通過了。`, 'plain')
       } else {

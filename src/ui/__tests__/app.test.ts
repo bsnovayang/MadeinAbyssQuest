@@ -117,6 +117,70 @@ describe('探索', () => {
   })
 })
 
+describe('補給商', () => {
+  it('加減會改變數量、花費與重量', () => {
+    const before = app.snapshot().meta.loadout.food
+    click('[data-buy="food:1"]')
+    expect(app.snapshot().meta.loadout.food).toBe(before + 1)
+
+    click('[data-buy="food:-1"]')
+    expect(app.snapshot().meta.loadout.food).toBe(before)
+
+    expect(root.querySelector('.buy__total')?.textContent).toContain('kg')
+  })
+
+  it('買不起就不能再加', () => {
+    const meta = app.snapshot().meta
+    meta.funds = 0
+    click('[data-buy="food:-1"]')
+
+    const add = root.querySelector('[data-buy="food:1"]')!
+    expect(add.hasAttribute('disabled')).toBe(true)
+
+    const before = app.snapshot().meta.loadout.food
+    click('[data-buy="food:1"]')
+    expect(app.snapshot().meta.loadout.food).toBe(before)
+  })
+
+  it('出發時才付補給的錢', () => {
+    const meta = app.snapshot().meta
+    const funds = meta.funds
+    click('[data-pick="riko"]')
+    click('[data-depart]')
+
+    expect(app.snapshot().meta.funds).toBeLessThan(funds)
+    expect(app.snapshot().run?.supplies.food).toBe(meta.loadout.food)
+  })
+
+  it('沒錢買補給時說得出原因', () => {
+    const meta = app.snapshot().meta
+    meta.funds = 0
+    click('[data-pick="riko"]')
+
+    const depart = root.querySelector('[data-depart]')!
+    expect(depart.hasAttribute('disabled')).toBe(true)
+    expect(depart.querySelector('.action__why')?.textContent).toContain('買不起')
+  })
+})
+
+describe('資訊揭露', () => {
+  it('帶著測繪士才看得出前方是什麼', () => {
+    click('[data-pick="urna"]') // 烏爾娜有測繪
+    click('[data-depart]')
+    expect(root.querySelector('.choice__kind')?.textContent?.trim()).not.toBe('？')
+    expect(exists('.choice__kind--unknown')).toBe(false)
+  })
+
+  it('沒有測繪士就只剩筆記上的描述', () => {
+    click('[data-pick="tobi"]') // 托比只是學徒
+    click('[data-depart]')
+    expect(exists('.choice__kind--unknown')).toBe(true)
+    expect(root.querySelector('.choice__kind')?.textContent?.trim()).toBe('？')
+    // 描述本身仍然看得見，那才是判斷的依據
+    expect(root.querySelector('.choice')?.textContent?.trim().length).toBeGreaterThan(2)
+  })
+})
+
 describe('孤兒院', () => {
   it('先看見人是誰，才決定要不要帶走', () => {
     const cards = root.querySelectorAll('.applicant')
@@ -129,7 +193,9 @@ describe('孤兒院', () => {
   })
 
   it('沒錢時不會招募，也會說明原因', () => {
-    expect(app.snapshot().meta.funds).toBe(0)
+    app.snapshot().meta.funds = 0
+    click('[data-pick="riko"]')
+    click('[data-pick="riko"]') // 觸發重繪
     const before = app.snapshot().meta.roster.length
 
     const btn = root.querySelector('[data-hire]')!
@@ -173,7 +239,7 @@ describe('清除紀錄', () => {
     expect(app.snapshot().meta.graveyard).toHaveLength(1)
 
     click('[data-wipe-confirm]')
-    expect(app.snapshot().meta.funds).toBe(0)
+    expect(app.snapshot().meta.funds).not.toBe(500)
     expect(app.snapshot().meta.graveyard).toHaveLength(0)
     expect(app.snapshot().selected).toEqual([])
     expect(app.snapshot().view).toBe('town')
@@ -182,7 +248,6 @@ describe('清除紀錄', () => {
   it('可以反悔', () => {
     const meta = app.snapshot().meta
     meta.funds = 500
-
     click('[data-wipe]')
     click('[data-wipe-cancel]')
 

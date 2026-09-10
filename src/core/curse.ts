@@ -1,4 +1,5 @@
 import { layerAt } from './depth'
+import { partyBehaviors } from './traits'
 import type { Character, RunState } from './types'
 
 export interface CurseTier {
@@ -43,6 +44,9 @@ export function bearersOf(state: RunState): Character[] {
  */
 export function distributeBurden(state: RunState): Record<string, number> {
   const tier = tierFor(state.depth)
+  // 娜娜奇這類角色能讓每一步都輕一點，但永遠不會歸零
+  const relief = partyBehaviors(state.party).curseResist
+  const cost = Math.max(1, tier.cost - relief)
   const bearers = bearersOf(state)
   const out: Record<string, number> = {}
   if (bearers.length === 0) return out
@@ -54,14 +58,14 @@ export function distributeBurden(state: RunState): Record<string, number> {
       : undefined
 
   if (target) {
-    out[target.id] = tier.cost * bearers.length
+    out[target.id] = cost * bearers.length
     for (const c of bearers) {
       if (c.id !== target.id) out[c.id] = 0
     }
     return out
   }
 
-  for (const c of bearers) out[c.id] = tier.cost
+  for (const c of bearers) out[c.id] = cost
   return out
 }
 

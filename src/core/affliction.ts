@@ -1,3 +1,4 @@
+import { traitsOf } from './traits'
 import type { Character } from './types'
 
 export interface AfflictionDef {
@@ -82,7 +83,10 @@ export interface EffectiveStats {
   carryCapacity: number
 }
 
-/** 把永久損傷換算成實際能力值。基礎值本身永遠不變，因此治療只要移除項目即可 */
+/**
+ * 把特質與永久損傷換算成實際能力值。
+ * 基礎值本身永遠不變，因此治療只要移除項目即可。
+ */
 export function effectiveStats(c: Character): EffectiveStats {
   const stats: EffectiveStats = {
     maxHp: c.maxHp,
@@ -90,9 +94,12 @@ export function effectiveStats(c: Character): EffectiveStats {
     carryCapacity: c.carryCapacity,
   }
 
-  for (const id of c.afflictions) {
-    const def = afflictionById(id)
-    if (!def) continue
+  const mods = [
+    ...traitsOf(c),
+    ...c.afflictions.map(afflictionById).filter((d): d is AfflictionDef => !!d),
+  ]
+
+  for (const def of mods) {
     stats.maxHp += def.maxHp ?? 0
     stats.maxTolerance += def.maxTolerance ?? 0
     stats.carryCapacity += def.carryCapacity ?? 0

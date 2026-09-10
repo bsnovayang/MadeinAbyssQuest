@@ -1,9 +1,10 @@
 import { CURSE_AFFLICTIONS, effectiveStats } from './affliction'
 import { layerAt } from './depth'
 import { nextInt, pick } from './rng'
-import type { Character, LostSoul, MemorialEntry, RunState } from './types'
+import { COMMON_TRAITS } from './traits'
+import type { Character, LostSoul, MemorialEntry, RunState, Supplies, SupplyKey } from './types'
 import { RECRUIT_NAMES } from '../data/names'
-import { startingParty } from '../data/party'
+import { startingParty, startingSupplies } from '../data/party'
 
 export interface MetaState {
   roster: Character[]
@@ -11,6 +12,8 @@ export interface MetaState {
   lostSouls: LostSoul[]
   /** 孤兒院目前有的孩子。招募是選擇，不是抽獎 */
   applicants: Character[]
+  /** 下一趟要帶的補給。出發時才付錢 */
+  loadout: Supplies
   funds: number
   runIndex: number
   rngState: number
@@ -18,13 +21,60 @@ export interface MetaState {
 
 export const PARTY_SIZE = 4
 
+/**
+ * 補給不再是免費配給的。
+ *
+ * 錢限制的是前期「買不買得起」，負重限制的是全程「帶不帶得動」——
+ * 兩者一起，「帶多少補給下去」才是一個真的決策（企劃書 8-1）。
+ */
+export const SUPPLY_PRICE: Readonly<Record<SupplyKey, number>> = {
+  food: 12,
+  water: 8,
+  rope: 20,
+  medicine: 45,
+}
+
+export const SUPPLY_REFUND = 0.5
+
+export function loadoutCost(supplies: Supplies): number {
+  return (Object.keys(SUPPLY_PRICE) as SupplyKey[]).reduce(
+    (sum, k) => sum + supplies[k] * SUPPLY_PRICE[k],
+    0,
+  )
+}
+
+/** 探窟家組合的最低配給。低到不夠深潛，但足以再賺一趟 */
+export const MINIMUM_KIT: Supplies = { food: 4, water: 8, rope: 1, medicine: 0 }
+
+/**
+ * 補給版的破產保底（企劃書 11-7、11-8）。
+ *
+ * 沒有這道保底，全滅之後會出現第二種死亡螺旋：沒錢 → 買不起補給 →
+ * 空手下去 → 又死。孤兒院保證有人，組合保證那些人身上有水。
+ */
+export function guildSubsidy(meta: MetaState): boolean {
+  const floor = loadoutCost(MINIMUM_KIT)
+  if (meta.funds >= floor) return false
+  meta.funds = floor
+  return true
+}
+
+export function adjustLoadout(meta: MetaState, key: SupplyKey, delta: number): void {
+  const next = Math.max(0, Math.min(99, meta.loadout[key] + delta))
+  const candidate = { ...meta.loadout, [key]: next }
+  if (delta > 0 && loadoutCost(candidate) > meta.funds) return
+  meta.loadout[key] = next
+}
+
 export function createMeta(rngState = 20260910): MetaState {
   const meta: MetaState = {
     roster: startingParty(),
     graveyard: [],
     lostSouls: [],
     applicants: [],
-    funds: 0,
+    loadout: startingSupplies(),
+    // 第一趟的本錢。之後就得自己賺
+    funds: 700,
     runIndex: 0,
     rngState,
   }
@@ -37,8 +87,10 @@ export function normalizeMeta(meta: MetaState): MetaState {
   meta.applicants ??= []
   meta.lostSouls ??= []
   meta.graveyard ??= []
+  meta.loadout ??= startingSupplies()
   for (const c of [...meta.roster, ...meta.applicants]) {
     c.afflictions ??= []
+    c.traits ??= []
     c.bonds ??= {}
   }
   refreshApplicants(meta)
@@ -88,6 +140,7 @@ export function deployParty(meta: MetaState, ids: readonly string[]): Character[
       ...c,
       bonds: { ...c.bonds },
       afflictions: [...c.afflictions],
+      traits: [...c.traits],
       hp: stats.maxHp,
       maxHp: stats.maxHp,
       tolerance: stats.maxTolerance + bonus,
@@ -102,6 +155,8 @@ export function deployParty(meta: MetaState, ids: readonly string[]): Character[
 export interface RunSummary {
   surfaced: boolean
   earned: number
+  /** 沒用完的補給賣回來的錢 */
+  refunded: number
   survivors: string[]
   dead: string[]
   lost: string[]
@@ -118,6 +173,7 @@ export function concludeRun(meta: MetaState, run: RunState): RunSummary {
   const summary: RunSummary = {
     surfaced,
     earned: 0,
+    refunded: 0,
     survivors: [],
     dead: [],
     lost: [],
@@ -141,7 +197,9 @@ export function concludeRun(meta: MetaState, run: RunState): RunSummary {
     summary.earned = run.carried
       .filter((i) => i.kind !== 'corpse')
       .reduce((sum, i) => sum + i.value, 0)
-    meta.funds += summary.earned
+    // 沒用完的補給賣回給補給商。全滅的話當然什麼都沒有
+    summary.refunded = Math.floor(loadoutCost(run.supplies) * SUPPLY_REFUND)
+    meta.funds += summary.earned + summary.refunded
   }
 
   for (const c of fallen) {
@@ -271,6 +329,9 @@ export function hire(meta: MetaState, applicantId: string): Character | null {
  * 孤兒院不收錢，因為它本來就不是生意。
  */
 export function replenish(meta: MetaState): Character[] {
+  guildSubsidy(meta)
+  clampLoadoutToFunds(meta)
+
   const added: Character[] = []
   while (availableMembers(meta).length < ROSTER_FLOOR) {
     const member = recruit(meta)
@@ -278,6 +339,16 @@ export function replenish(meta: MetaState): Character[] {
     added.push(member)
   }
   return added
+}
+
+/** 資金縮水時，把上次的採購單自動調降到買得起的範圍 */
+export function clampLoadoutToFunds(meta: MetaState): void {
+  const order: SupplyKey[] = ['medicine', 'rope', 'food', 'water']
+  for (const key of order) {
+    while (loadoutCost(meta.loadout) > meta.funds && meta.loadout[key] > 0) {
+      meta.loadout[key] -= 1
+    }
+  }
 }
 
 /** 孤兒院永遠會給你新的孩子（企劃書 11-7）。免費補人用，不經過孤兒院名額 */
@@ -301,6 +372,7 @@ function makeRecruit(meta: MetaState): Character {
   meta.rngState = s4
 
   return {
+    traits: rollTraits(meta),
     id: `r${meta.runIndex}-${meta.roster.length}-${meta.applicants.length}-${Math.round(meta.rngState % 99991)}`,
     name,
     hp,
@@ -313,4 +385,26 @@ function makeRecruit(meta: MetaState): Character {
     afflictions: [],
     bonds: {},
   }
+}
+
+/**
+ * 孤兒院的孩子只拿得到 common 特質，永遠不會有招牌能力。
+ *
+ * 如果隨機來的孩子也有帥氣技能，具名角色就失去份量，
+ * 而「犧牲隊友」在算計上會變得太划算。
+ * 但特質仍然讓玩家記得住某幾個名字（見 角色.md）。
+ */
+function rollTraits(meta: MetaState): string[] {
+  const [count, s1] = nextInt(meta.rngState, 1, 2)
+  meta.rngState = s1
+
+  const picked: string[] = []
+  for (let i = 0; i < count; i++) {
+    const pool = COMMON_TRAITS.filter((t) => !picked.includes(t.id))
+    if (pool.length === 0) break
+    const [t, s] = pick(meta.rngState, pool)
+    meta.rngState = s
+    picked.push(t.id)
+  }
+  return picked
 }

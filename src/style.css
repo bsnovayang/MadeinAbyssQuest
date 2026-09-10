@@ -364,6 +364,11 @@ h2 {
   letter-spacing: 0.1em;
 }
 
+/* 沒有測繪的人，只能靠筆記上的描述判斷前面是什麼 */
+.choice__kind--unknown {
+  color: var(--paper-edge);
+}
+
 .actions {
   margin-top: 0.8rem;
   display: flex;
@@ -822,6 +827,79 @@ h2 {
   color: var(--ink-faint);
   font-size: 0.8rem;
   white-space: nowrap;
+}
+
+/* ── 特質 ────────────────────────────────────────────── */
+
+.roster__traits {
+  display: block;
+  margin-top: 0.2rem;
+}
+
+.trait {
+  display: inline-block;
+  font-size: 0.74rem;
+  padding: 0.02rem 0.4rem;
+  margin: 0 0.25rem 0.15rem 0;
+  border: 1px solid var(--paper-edge);
+  border-radius: 2px;
+  color: var(--ink-soft);
+}
+
+.trait--signature {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── 補給商 ──────────────────────────────────────────── */
+
+.buys {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.buy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.2rem 0;
+  border-bottom: 1px dotted var(--paper-edge);
+}
+
+.buy__unit {
+  color: var(--ink-faint);
+  font-size: 0.74rem;
+  margin-left: 0.5rem;
+}
+
+.buy__controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.buy__count {
+  min-width: 2ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.buy__total {
+  margin-top: 0.5rem;
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+
+.buy__spare {
+  color: var(--accent);
+}
+
+.buy__over {
+  color: #a33d2a;
+  font-weight: 700;
 }
 
 .applicants {
