@@ -8,8 +8,8 @@ export function startingParty(): Character[] {
       name: '莉可',
       hp: 22,
       maxHp: 22,
-      tolerance: 10,
-      maxTolerance: 10,
+      tolerance: 18,
+      maxTolerance: 18,
       carryCapacity: 18,
       immuneToCurse: false,
       status: 'alive',
@@ -30,8 +30,8 @@ export function startingParty(): Character[] {
       name: '烏爾娜',
       hp: 20,
       maxHp: 20,
-      tolerance: 8,
-      maxTolerance: 8,
+      tolerance: 16,
+      maxTolerance: 16,
       carryCapacity: 20,
       immuneToCurse: false,
       status: 'alive',
@@ -41,8 +41,8 @@ export function startingParty(): Character[] {
       name: '托比',
       hp: 16,
       maxHp: 16,
-      tolerance: 6,
-      maxTolerance: 6,
+      tolerance: 12,
+      maxTolerance: 12,
       carryCapacity: 14,
       immuneToCurse: false,
       status: 'alive',
@@ -50,6 +50,10 @@ export function startingParty(): Character[] {
   ]
 }
 
+/**
+ * 起始補給刻意接近負重上限的三分之二 —— 剩下的空間就是戰利品的空間。
+ * 補給給得太少，「帶多少」就不是決策而是照抄；給得太多，貪婪迴圈就消失了。
+ */
 export function startingSupplies(): Supplies {
-  return { food: 8, water: 10, rope: 3, medicine: 2 }
+  return { food: 12, water: 24, rope: 4, medicine: 3 }
 }

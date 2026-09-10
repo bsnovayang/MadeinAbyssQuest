@@ -1,7 +1,16 @@
-import { layerAt, threatAt, waterCostAt } from './depth'
+import { distributeBurden, hasWardRelic, tierFor } from './curse'
+import { layerAt, threatAt, valueMultiplier, waterCostAt } from './depth'
 import { generateChoices, makeNode } from './map'
 import { hashSeed, nextInt, pick } from './rng'
-import type { AbyssNode, Character, Item, LogTone, RunState, SupplyKey } from './types'
+import type {
+  AbyssNode,
+  BurdenMode,
+  Character,
+  Item,
+  LogTone,
+  RunState,
+  SupplyKey,
+} from './types'
 import {
   capacityOf,
   encumbranceOf,
@@ -9,13 +18,15 @@ import {
   totalWeight,
   type Encumbrance,
 } from './weight'
-import { LOOT, RELICS } from '../data/loot'
+import { BANTER, BANTER_AFTER_LOSS } from '../data/banter'
+import { LOOT } from '../data/loot'
 import { startingParty, startingSupplies } from '../data/party'
+import { RELIC_DEFS, relicById } from '../data/relics'
 
 export function createRun(seed: string): RunState {
   const rngState = hashSeed(seed)
   const [entrance, s1] = makeNode(rngState, 0, 0, 'rest')
-  const gen = generateChoices(s1, 1, 0)
+  const gen = generateChoices(s1, 1, 0, 'down')
 
   const state: RunState = {
     seed,
@@ -28,6 +39,8 @@ export function createRun(seed: string): RunState {
     carried: [],
     exhaustion: 0,
     daysElapsed: 0,
+    burden: { mode: 'spread', targetId: null },
+    ascentSteps: 0,
     current: entrance,
     choices: gen.choices,
     log: [],
@@ -47,6 +60,10 @@ export function aliveMembers(state: RunState): Character[] {
   return state.party.filter((c) => c.status === 'alive')
 }
 
+export function hasLoss(state: RunState): boolean {
+  return state.party.some((c) => c.status !== 'alive')
+}
+
 export function loadOf(state: RunState): number {
   return totalWeight(state.supplies, state.carried)
 }
@@ -55,7 +72,7 @@ export function encumbranceOfRun(state: RunState): Encumbrance {
   return encumbranceOf(loadOf(state), capacityOf(state.party))
 }
 
-export function canDescend(state: RunState): boolean {
+export function canMove(state: RunState): boolean {
   return !state.over && encumbranceOfRun(state) !== 'critical'
 }
 
@@ -63,9 +80,58 @@ export function canCamp(state: RunState): boolean {
   return !state.over && state.current.kind === 'rest' && state.supplies.food >= 1
 }
 
-// ─── 動作 ────────────────────────────────────────────────────
+export function canUseAnchor(state: RunState): boolean {
+  return !state.over && state.current.kind === 'anchor' && state.supplies.rope >= 1
+}
 
-export function descendTo(state: RunState, nodeId: string): void {
+export function escapeRelics(state: RunState): Item[] {
+  return state.carried.filter((i) => {
+    const def = i.relicId ? relicById(i.relicId) : undefined
+    return def?.kind === 'escape'
+  })
+}
+
+export function totalValue(state: RunState): number {
+  return state.carried.reduce((sum, i) => sum + i.value, 0)
+}
+
+// ─── 方向切換 ────────────────────────────────────────────────
+
+/**
+ * 宣告返回。撤離途中仍可再往下（企劃書 7-5）—— 已產生的負荷不會消失，
+ * 因此不需要額外的防作弊規則：再下去一次，回程只會更痛。
+ */
+export function beginAscent(state: RunState): void {
+  if (state.over || state.direction === 'up') return
+  state.direction = 'up'
+  state.ascentSteps = 0
+  const tier = tierFor(state.depth)
+  push(state, `決定回去。從這裡往上，每一步都要付${tier.name}的代價。`, 'cold')
+  regenChoices(state)
+}
+
+export function resumeDescent(state: RunState): void {
+  if (state.over || state.direction === 'down') return
+  state.direction = 'down'
+  push(state, '又往下看了一眼。已經受的傷不會因此消失。', 'cold')
+  regenChoices(state)
+}
+
+export function setBurden(state: RunState, mode: BurdenMode, targetId: string | null): void {
+  if (mode === 'ward') {
+    if (!hasWardRelic(state)) return
+    const target = state.party.find((c) => c.id === targetId && c.status === 'alive')
+    if (!target || target.immuneToCurse) return
+    state.burden = { mode: 'ward', targetId: target.id }
+    push(state, `把籠子掛到了${target.name}身上。他沒有問為什麼。`, 'grim')
+    return
+  }
+  state.burden = { mode: 'spread', targetId: null }
+}
+
+// ─── 移動 ────────────────────────────────────────────────────
+
+export function moveTo(state: RunState, nodeId: string): void {
   if (state.over) return
   const node = state.choices.find((n) => n.id === nodeId)
   if (!node) return
@@ -87,19 +153,143 @@ export function descendTo(state: RunState, nodeId: string): void {
   }
 
   spendWater(state, waterCostAt(state.depth) + extraWaterCost(enc))
-  resolveNode(state, node)
+
+  if (state.direction === 'up') {
+    state.ascentSteps += 1
+    applyCurse(state)
+  }
+
+  if (!state.over) resolveNode(state, node)
   applyExhaustion(state)
   reapDead(state)
 
-  if (!state.over) {
-    const gen = generateChoices(state.rngState, state.nextNodeId, state.depth)
-    state.rngState = gen.rngState
-    state.nextNodeId = gen.nextNodeId
-    state.choices = gen.choices
-  } else {
-    state.choices = []
+  if (state.direction === 'up' && state.depth <= 0 && !state.over) {
+    surface(state, '回到了地表。陽光刺得眼睛發痛。')
+    return
+  }
+
+  if (!state.over) regenChoices(state)
+  else state.choices = []
+}
+
+function regenChoices(state: RunState): void {
+  const gen = generateChoices(state.rngState, state.nextNodeId, state.depth, state.direction)
+  state.rngState = gen.rngState
+  state.nextNodeId = gen.nextNodeId
+  state.choices = gen.choices
+}
+
+// ─── 上升負荷 ────────────────────────────────────────────────
+
+function applyCurse(state: RunState): void {
+  const share = distributeBurden(state)
+  for (const c of state.party) {
+    if (c.status !== 'alive') continue
+    const amount = share[c.id] ?? 0
+    if (amount <= 0) continue
+
+    const before = c.tolerance
+    c.tolerance = Math.max(0, c.tolerance - amount)
+
+    if (before > 0 && c.tolerance === 0) {
+      push(state, `${c.name}再也撐不住了。`, 'grim')
+    }
+
+    // 耐受度歸零後，負荷直接傷及身體
+    const overflow = amount - before
+    if (overflow > 0) damage(state, c, overflow * 2)
   }
 }
+
+// ─── 撤離手段 ────────────────────────────────────────────────
+
+export function useAnchor(state: RunState): void {
+  if (!canUseAnchor(state)) return
+
+  state.supplies.rope -= 1
+  state.direction = 'up'
+
+  const layer = layerAt(state.depth)
+  const target = Math.max(0, layer.from - 1)
+
+  // 錨點省的是路途，不是代價
+  for (let i = 0; i < 3; i++) {
+    if (state.over) break
+    applyCurse(state)
+  }
+
+  state.depth = target
+  state.ascentSteps += 3
+  push(state, '升降裝置勉強動了。上升了一整層。', 'cold')
+
+  reapDead(state)
+  if (state.over) {
+    state.choices = []
+    return
+  }
+  if (state.depth <= 0) {
+    surface(state, '回到了地表。陽光刺得眼睛發痛。')
+    return
+  }
+  regenChoices(state)
+}
+
+export function useEscapeRelic(state: RunState, itemId: string): void {
+  if (state.over) return
+  const idx = state.carried.findIndex((i) => i.id === itemId)
+  const item = state.carried[idx]
+  if (!item?.relicId) return
+  const def = relicById(item.relicId)
+  if (def?.kind !== 'escape') return
+
+  state.carried.splice(idx, 1)
+
+  if (def.id === 'immovable-wedge') {
+    const alive = aliveMembers(state)
+    const [i, s] = nextInt(state.rngState, 0, Math.max(0, alive.length - 1))
+    state.rngState = s
+    const victim = alive[i]
+    if (victim) {
+      victim.status = 'lost'
+      push(state, `${victim.name}被留在原地。他沒有掙扎。`, 'grim')
+    }
+  }
+
+  if (def.id === 'pyre-cloth') {
+    const burned = state.carried.length
+    state.carried = []
+    push(state, `火葬布燒盡了帶著的一切。${burned} 件東西，全部沒了。`, 'grim')
+  }
+
+  if (aliveMembers(state).length === 0) {
+    state.over = true
+    state.endReason = 'wiped'
+    state.choices = []
+    return
+  }
+
+  surface(state, `${def.name}生效了。回到了地表。`)
+}
+
+export function useMedicine(state: RunState, memberId: string): void {
+  if (state.over || state.supplies.medicine <= 0) return
+  const target = state.party.find((c) => c.id === memberId && c.status === 'alive')
+  if (!target) return
+
+  state.supplies.medicine -= 1
+  target.tolerance = Math.min(target.maxTolerance, target.tolerance + 6)
+  push(state, `給${target.name}用了藥。臉色好了一些，只是好了一些。`, 'plain')
+}
+
+function surface(state: RunState, text: string): void {
+  state.depth = 0
+  state.over = true
+  state.endReason = 'surfaced'
+  state.choices = []
+  push(state, text, 'warm')
+}
+
+// ─── 其他動作 ────────────────────────────────────────────────
 
 export function camp(state: RunState): void {
   if (!canCamp(state)) return
@@ -109,11 +299,15 @@ export function camp(state: RunState): void {
 
   for (const c of aliveMembers(state)) {
     c.hp = Math.min(c.maxHp, c.hp + Math.ceil(c.maxHp * 0.3))
-    c.tolerance = Math.min(c.maxTolerance, c.tolerance + 2)
+    c.tolerance = Math.min(c.maxTolerance, c.tolerance + 4)
   }
 
   if (state.exhaustion > 0) state.exhaustion = Math.max(0, state.exhaustion - 1)
-  push(state, '生了火。有人說了個無聊的笑話，大家都笑了。', 'warm')
+
+  const lines = hasLoss(state) ? BANTER_AFTER_LOSS : BANTER
+  const [line, s] = pick(state.rngState, lines)
+  state.rngState = s
+  push(state, line, 'warm')
 }
 
 export function dropItem(state: RunState, itemId: string): void {
@@ -121,6 +315,9 @@ export function dropItem(state: RunState, itemId: string): void {
   const item = state.carried[idx]
   if (!item) return
   state.carried.splice(idx, 1)
+  if (state.burden.mode === 'ward' && !hasWardRelic(state)) {
+    state.burden = { mode: 'spread', targetId: null }
+  }
   push(state, `丟下了${item.name}。走了這麼遠才拿到的。`, 'cold')
 }
 
@@ -162,9 +359,7 @@ function resolveNode(state: RunState, node: AbyssNode): void {
         push(state, `${node.label}。架設繩索通過了。`, 'plain')
       } else {
         push(state, `${node.label}。沒有繩索，只能徒手攀爬。`, 'cold')
-        for (const c of aliveMembers(state)) {
-          damage(state, c, 3)
-        }
+        for (const c of aliveMembers(state)) damage(state, c, 3)
       }
       break
 
@@ -173,21 +368,28 @@ function resolveNode(state: RunState, node: AbyssNode): void {
       break
 
     case 'relic': {
-      const [tpl, s1] = pick(state.rngState, RELICS)
+      const [def, s1] = pick(state.rngState, RELIC_DEFS)
       state.rngState = s1
-      addItem(state, tpl.name, tpl.weight, tpl.value, 'relic', false)
-      push(state, `${node.label}。是遺物 —— ${tpl.name}，${tpl.weight}kg。`, 'warm')
+      addItem(state, {
+        name: def.name,
+        weight: def.weight,
+        value: def.value,
+        kind: 'relic',
+        identified: true,
+        relicId: def.id,
+      })
+      push(state, `${node.label}。是遺物 —— ${def.name}，${def.weight}kg。`, 'warm')
       break
     }
 
     case 'anchor':
-      push(state, `${node.label}。可以從這裡上升一層。（M2 實作）`, 'plain')
+      push(state, `${node.label}。看起來還能動。`, 'plain')
       break
   }
 }
 
 function resolveEncounter(state: RunState, node: AbyssNode): void {
-  const threat = threatAt(state.depth)
+  const threat = threatAt(state.maxDepthReached)
   const alive = aliveMembers(state)
   if (alive.length === 0) return
 
@@ -198,7 +400,7 @@ function resolveEncounter(state: RunState, node: AbyssNode): void {
   const target = alive[targetIdx]
   if (!target) return
 
-  // M1 以擲骰佔位，M5 換成 ATB 戰鬥
+  // M1/M2 以擲骰佔位，M5 換成 ATB 戰鬥
   if (roll >= 5) {
     push(state, `${node.label}。及時避開了。`, 'plain')
     return
@@ -208,10 +410,10 @@ function resolveEncounter(state: RunState, node: AbyssNode): void {
   push(state, `${node.label}。${target.name}受了傷。`, 'cold')
   damage(state, target, dmg)
 
-  if (roll <= 2) {
+  if (roll <= 2 && state.direction === 'down') {
     const [tpl, s3] = pick(state.rngState, LOOT)
     state.rngState = s3
-    addItem(state, tpl.name, tpl.weight, tpl.value, 'loot', true)
+    addItem(state, { ...tpl, kind: 'loot', identified: true })
     push(state, `擊退之後，從殘骸裡取得了${tpl.name}。`, 'plain')
   }
 }
@@ -233,8 +435,8 @@ function applyExhaustion(state: RunState): void {
     push(state, dehydrated ? '水沒了。' : '食物沒了。', 'grim')
   }
 
+  // 逐步惡化而非斷崖。永久性的損耗屬於 M3 的永久損傷系統
   for (const c of aliveMembers(state)) {
-    c.maxHp = Math.max(1, c.maxHp - 1)
     damage(state, c, state.exhaustion)
   }
 }
@@ -255,21 +457,11 @@ function reapDead(state: RunState): void {
   push(state, '沒有人再站起來。深淵並不在意。', 'grim')
 }
 
-function addItem(
-  state: RunState,
-  name: string,
-  weight: number,
-  value: number,
-  kind: Item['kind'],
-  identified: boolean,
-): void {
+function addItem(state: RunState, item: Omit<Item, 'id'>): void {
   state.carried.push({
-    id: `i${state.carried.length}-${Math.round(state.depth)}`,
-    name,
-    weight,
-    value,
-    kind,
-    identified,
+    ...item,
+    value: Math.round(item.value * valueMultiplier(state.depth)),
+    id: `i${state.nextNodeId}-${state.carried.length}`,
   })
 }
 

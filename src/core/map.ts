@@ -1,6 +1,6 @@
-import { advance, layerAt } from './depth'
+import { advance, layerAt, retreat } from './depth'
 import { nextInt, pick, pickWeighted } from './rng'
-import type { AbyssNode, NodeKind } from './types'
+import type { AbyssNode, Direction, NodeKind } from './types'
 
 const KINDS: readonly NodeKind[] = [
   'empty',
@@ -13,7 +13,13 @@ const KINDS: readonly NodeKind[] = [
 ]
 
 /** 「空節點」是刻意保留的 —— 深淵大部分時候只是安靜地很深（企劃書 9-6） */
-const WEIGHTS: readonly number[] = [12, 20, 14, 12, 24, 8, 6]
+const WEIGHTS_DOWN: readonly number[] = [12, 20, 14, 12, 24, 8, 6]
+
+/**
+ * 歸途：熟悉但不安全（企劃書 7-1）。
+ * 採集點已被自己採光，遺物也撿完了，剩下的是敵人與地形。
+ */
+const WEIGHTS_UP: readonly number[] = [16, 6, 12, 18, 34, 0, 8]
 
 const LABELS: Readonly<Record<NodeKind, readonly string[]>> = {
   empty: ['靜謐的岩棚', '無事的斜坡', '空曠的裂隙', '什麼也沒有的窪地'],
@@ -43,8 +49,11 @@ export function generateChoices(
   rngState: number,
   nextNodeId: number,
   depth: number,
+  direction: Direction = 'down',
 ): { choices: AbyssNode[]; rngState: number; nextNodeId: number } {
-  const nextDepth = advance(depth)
+  const up = direction === 'up'
+  const nextDepth = up ? retreat(depth) : advance(depth)
+  const weights = up ? WEIGHTS_UP : WEIGHTS_DOWN
   let s = rngState
   let id = nextNodeId
 
@@ -58,7 +67,7 @@ export function generateChoices(
     let kind: NodeKind = 'empty'
     // 同一排避免重複種類，讓每個選擇都是不同的風險
     for (let attempt = 0; attempt < 8; attempt++) {
-      const [k, s2] = pickWeighted(s, KINDS, WEIGHTS)
+      const [k, s2] = pickWeighted(s, KINDS, weights)
       s = s2
       kind = k
       if (!used.has(k)) break

@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   aliveMembers,
   camp,
-  canDescend,
+  canMove,
   createRun,
-  descendTo,
+  moveTo,
   dropItem,
+  dropSupply,
   encumbranceOfRun,
   loadOf,
 } from '../run'
@@ -20,11 +21,18 @@ function descendUntilOver(seed: string, maxSteps = 400): RunState {
   while (!s.over && s.choices.length > 0 && steps < maxSteps) {
     if (encumbranceOfRun(s) === 'critical') {
       const heaviest = [...s.carried].sort((a, b) => b.weight - a.weight)[0]
-      if (!heaviest) break
-      dropItem(s, heaviest.id)
+      if (heaviest) {
+        dropItem(s, heaviest.id)
+        continue
+      }
+      const spare = (['rope', 'food', 'water', 'medicine'] as const).find(
+        (k) => s.supplies[k] > 0,
+      )
+      if (!spare) break
+      dropSupply(s, spare)
       continue
     }
-    descendTo(s, firstChoice(s))
+    moveTo(s, firstChoice(s))
     steps++
   }
   return s
@@ -41,7 +49,7 @@ describe('run', () => {
   it('下潛會推進深度並更新 maxDepthReached', () => {
     const s = createRun('descend')
     expect(s.depth).toBe(0)
-    descendTo(s, firstChoice(s))
+    moveTo(s, firstChoice(s))
     expect(s.depth).toBeGreaterThan(0)
     expect(s.maxDepthReached).toBe(s.depth)
   })
@@ -49,7 +57,7 @@ describe('run', () => {
   it('下潛會消耗水', () => {
     const s = createRun('water')
     const before = s.supplies.water
-    descendTo(s, firstChoice(s))
+    moveTo(s, firstChoice(s))
     // 採集點可能補水，因此只驗證有發生消耗或補充，不會憑空不變
     expect(s.supplies.water).not.toBe(before + 0.5)
     expect(s.supplies.water).toBeGreaterThanOrEqual(0)
@@ -58,7 +66,7 @@ describe('run', () => {
   it('無效的節點 id 不會改變狀態', () => {
     const s = createRun('invalid')
     const depth = s.depth
-    descendTo(s, 'not-a-real-node')
+    moveTo(s, 'not-a-real-node')
     expect(s.depth).toBe(depth)
   })
 
@@ -72,7 +80,7 @@ describe('run', () => {
   it('結束後無法再下潛', () => {
     const s = descendUntilOver('ended')
     expect(s.choices).toHaveLength(0)
-    expect(canDescend(s)).toBe(false)
+    expect(canMove(s)).toBe(false)
   })
 
   it('紮營消耗食物並恢復 HP', () => {
@@ -121,9 +129,9 @@ describe('run', () => {
       value: 0,
       identified: true,
     })
-    expect(canDescend(s)).toBe(false)
+    expect(canMove(s)).toBe(false)
     const depth = s.depth
-    descendTo(s, firstChoice(s))
+    moveTo(s, firstChoice(s))
     expect(s.depth).toBe(depth)
   })
 })

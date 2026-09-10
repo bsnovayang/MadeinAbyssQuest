@@ -175,15 +175,19 @@ h2 {
   transition: width 400ms ease;
 }
 
-.member--dead .member__name,
-.member--dead .member__hp {
+.member--gone .member__name,
+.member--gone .member__hp {
   color: var(--grim);
   text-decoration: line-through;
   text-decoration-thickness: 1px;
 }
 
-.member--dead .member__fill {
+.member--gone .member__fill {
   background: var(--grim);
+}
+
+.member__hp .changed--up {
+  color: var(--accent);
 }
 
 .member__note {
@@ -421,4 +425,269 @@ h2 {
   margin-top: 2rem;
   font-size: 0.75rem;
   color: var(--ink-faint);
+}
+
+/* ══ 撤離：暖度抽離，但絕不轉成 grimdark（企劃書 15-1）══════ */
+
+#app {
+  transition:
+    background-color 2.4s ease,
+    filter 2.4s ease;
+}
+
+.mood--ascent {
+  --paper: #ecebe2;
+  --rule: #d8d8ce;
+  background-color: var(--paper);
+  filter: saturate(0.72);
+}
+
+.depth-bar__arrow {
+  color: var(--cold);
+  margin-right: 0.1em;
+}
+
+.depth-bar__curse {
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--cold);
+  letter-spacing: 0.06em;
+}
+
+/* ── 耐受度與預兆（企劃書 7-2）─────────────────────────── */
+
+.member__tol {
+  margin-top: 0.3rem;
+}
+
+.member__track--tol {
+  height: 6px;
+  background: #ded9c8;
+}
+
+.member__fill--tol {
+  background: var(--cold);
+  transition: width 500ms ease;
+}
+
+.member__fc {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  margin-top: 0.15rem;
+}
+
+.fc {
+  color: var(--ink-faint);
+}
+
+.fc--warn {
+  color: var(--warm);
+}
+
+/* 預兆必須顯眼到玩家無法假裝沒看到 */
+.fc--doom {
+  color: #a33d2a;
+  font-weight: 700;
+}
+
+.fc--cost {
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.member--ward {
+  background: rgba(163, 61, 42, 0.07);
+  box-shadow: inset 3px 0 0 #a33d2a;
+  padding-left: 0.5rem;
+}
+
+.member__note--grim {
+  color: var(--grim);
+  letter-spacing: 0.1em;
+}
+
+.member__btns {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.member__btns:empty {
+  display: none;
+}
+
+.ward {
+  font-family: inherit;
+  font-size: 0.76rem;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid var(--ink-faint);
+  border-radius: 2px;
+  padding: 0.12rem 0.5rem;
+  cursor: pointer;
+}
+
+.ward:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.ward--on {
+  background: #a33d2a;
+  border-color: #a33d2a;
+  color: var(--paper);
+}
+
+.burden {
+  margin-top: 0.7rem;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.burden__hint {
+  color: var(--ink-faint);
+  font-size: 0.75rem;
+}
+
+/* ── 遺物脫離 ───────────────────────────────────────────── */
+
+.relics {
+  margin-top: 1.2rem;
+}
+
+.relic {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  background: transparent;
+  border: 1.5px solid #a33d2a;
+  border-radius: 3px;
+  padding: 0.55rem 0.8rem;
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.relic:hover {
+  background: rgba(163, 61, 42, 0.08);
+}
+
+.relic__name {
+  display: block;
+  font-weight: 700;
+}
+
+.relic__effect {
+  display: block;
+  font-size: 0.83rem;
+  color: var(--ink-soft);
+}
+
+.relic__cost {
+  display: block;
+  font-size: 0.8rem;
+  color: #a33d2a;
+  letter-spacing: 0.04em;
+}
+
+.action--key {
+  border-style: solid;
+  border-color: var(--ink);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.carried__note {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--ink-faint);
+}
+
+.carried__meta {
+  white-space: nowrap;
+}
+
+.mute {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0 0.2rem;
+  line-height: 1;
+}
+
+/* ══ 紮營：全遊戲最溫暖的畫面（企劃書 16-4）════════════════ */
+
+.mood--camp {
+  --paper: #f7ecd2;
+  background-color: var(--paper);
+  filter: saturate(1.08);
+}
+
+.mood--camp::before,
+.mood--warm::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  background: radial-gradient(
+    ellipse 70% 55% at 50% 62%,
+    rgba(255, 176, 80, 0.3),
+    rgba(255, 150, 60, 0.1) 45%,
+    transparent 72%
+  );
+  animation: firelight 5.5s ease-in-out infinite;
+}
+
+.mood--warm::before {
+  animation: none;
+  background: radial-gradient(
+    ellipse 90% 60% at 50% 0%,
+    rgba(255, 214, 140, 0.42),
+    transparent 70%
+  );
+}
+
+@keyframes firelight {
+  0%,
+  100% {
+    opacity: 0.82;
+    transform: scale(1);
+  }
+  38% {
+    opacity: 1;
+    transform: scale(1.035);
+  }
+  61% {
+    opacity: 0.88;
+    transform: scale(0.985);
+  }
+}
+
+.ended--warm .ended__title {
+  color: var(--warm);
+}
+
+.ended__body--grim {
+  color: var(--grim);
+  letter-spacing: 0.1em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mood--camp::before,
+  .mood--warm::before {
+    animation: none;
+  }
+
+  .log__entry {
+    animation: none;
+  }
 }
