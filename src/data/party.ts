@@ -6,6 +6,7 @@ export function startingParty(): Character[] {
     {
       id: 'riko',
       name: '莉可',
+      bio: '殲滅卿萊莎的女兒。相信母親還在深淵的最深處，也相信自己有一天會走到那裡。',
       hp: 22,
       maxHp: 22,
       tolerance: 18,
@@ -20,6 +21,7 @@ export function startingParty(): Character[] {
     {
       id: 'reg',
       name: '雷格',
+      bio: '在二層被撿到的機械人偶。不記得自己是誰，也不記得自己為什麼在那裡。',
       hp: 30,
       maxHp: 30,
       tolerance: 10,
@@ -34,6 +36,7 @@ export function startingParty(): Character[] {
     {
       id: 'urna',
       name: '烏爾娜',
+      bio: '測繪士。畫的地圖比店裡賣的還準，但她從來不說自己是怎麼學會的。',
       hp: 20,
       maxHp: 20,
       tolerance: 16,
@@ -48,6 +51,7 @@ export function startingParty(): Character[] {
     {
       id: 'tobi',
       name: '托比',
+      bio: '最年輕的紅笛。什麼都還不會，但每次回來都比上次強一點。',
       hp: 16,
       maxHp: 16,
       tolerance: 12,

@@ -10,6 +10,7 @@ function member(traits: string[], over: Partial<Character> = {}): Character {
   return {
     id: 'x',
     name: 'x',
+    bio: '',
     hp: 20,
     maxHp: 20,
     tolerance: 10,

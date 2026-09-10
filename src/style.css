@@ -901,6 +901,92 @@ h2 {
   color: var(--accent);
 }
 
+.trait--bad {
+  border-color: #c9a79d;
+  color: #a33d2a;
+}
+
+/* ── 隊員詳細 ────────────────────────────────────────── */
+
+.roster__card--open {
+  grid-column: 1 / -1;
+  border-color: var(--ink-soft);
+}
+
+.detail {
+  padding: 0.2rem 0.6rem 0.6rem;
+  border-top: 1px dashed var(--paper-edge);
+  margin-top: 0.3rem;
+}
+
+.detail__bio {
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+  color: var(--ink);
+  line-height: 1.7;
+}
+
+.detail__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.4rem;
+  margin: 0.5rem 0;
+}
+
+.detail__stats--wide {
+  gap: 0.6rem 2rem;
+}
+
+.detail__stats dt {
+  font-size: 0.74rem;
+  color: var(--ink-faint);
+}
+
+.detail__stats dd {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.detail__base {
+  margin-left: 0.3em;
+  font-size: 0.74rem;
+  font-weight: 400;
+  color: var(--ink-faint);
+}
+
+.detail__note {
+  margin: 0.3rem 0;
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+}
+
+.detail__h {
+  margin: 0.8rem 0 0.3rem;
+  font-size: 0.76rem;
+  letter-spacing: 0.18em;
+  color: var(--ink-faint);
+  font-weight: 700;
+}
+
+.detail__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+}
+
+.detail__list li {
+  padding: 0.18rem 0;
+  line-height: 1.6;
+}
+
+.detail__list--bonds li {
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── 補給商 ──────────────────────────────────────────── */
 
 .buys {

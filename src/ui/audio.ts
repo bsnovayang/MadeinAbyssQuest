@@ -17,7 +17,13 @@ let ctx: AudioContext | null = null
 let master: GainNode | null = null
 let filter: BiquadFilterNode | null = null
 let voices: Voice[] = []
-let muted = false
+
+/**
+ * 預設關閉。
+ * 目前的和弦襯底只是 M2 的佔位，正式的配樂方向還沒定（企劃書 15-5）——
+ * 難聽的音樂比沒有音樂更傷氣氛，所以先讓玩家自己決定要不要開。
+ */
+let muted = true
 
 function now(): number {
   return ctx?.currentTime ?? 0
@@ -28,7 +34,8 @@ let broken = false
 
 /** 必須由使用者手勢觸發，否則瀏覽器不允許播放 */
 export function ensureAudio(): void {
-  if (broken) return
+  // 靜音時連 oscillator 都不啟動
+  if (broken || muted) return
   try {
     initAudio()
   } catch {
@@ -137,6 +144,8 @@ export function resetAudio(): void {
 
 export function toggleMute(): boolean {
   muted = !muted
+  // 第一次打開聲音時才真的建立音訊
+  if (!muted) ensureAudio()
   if (master && ctx) {
     master.gain.cancelScheduledValues(now())
     master.gain.linearRampToValueAtTime(muted ? 0 : 0.07, now() + 0.3)

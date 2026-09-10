@@ -3,6 +3,7 @@ import { layerAt } from './depth'
 import { nextInt, pick } from './rng'
 import { COMMON_TRAITS } from './traits'
 import type { Character, LostSoul, MemorialEntry, RunState, Supplies, SupplyKey } from './types'
+import { RECRUIT_BIOS } from '../data/bios'
 import { RECRUIT_NAMES } from '../data/names'
 import { startingParty, startingSupplies } from '../data/party'
 
@@ -16,6 +17,12 @@ export interface MetaState {
   loadout: Supplies
   funds: number
   runIndex: number
+  /** 活著回到地表的次數 */
+  runsSurvived: number
+  /** 歷來抵達過的最深深度 */
+  deepestReached: number
+  /** 累計帶回地表的價值 */
+  totalEarned: number
   rngState: number
 }
 
@@ -76,6 +83,9 @@ export function createMeta(rngState = 20260910): MetaState {
     // 第一趟的本錢。之後就得自己賺
     funds: 700,
     runIndex: 0,
+    runsSurvived: 0,
+    deepestReached: 0,
+    totalEarned: 0,
     rngState,
   }
   refreshApplicants(meta)
@@ -88,10 +98,14 @@ export function normalizeMeta(meta: MetaState): MetaState {
   meta.lostSouls ??= []
   meta.graveyard ??= []
   meta.loadout ??= startingSupplies()
+  meta.runsSurvived ??= 0
+  meta.deepestReached ??= 0
+  meta.totalEarned ??= 0
   for (const c of [...meta.roster, ...meta.applicants]) {
     c.afflictions ??= []
     c.traits ??= []
     c.bonds ??= {}
+    c.bio ??= ''
   }
   refreshApplicants(meta)
   return meta
@@ -182,6 +196,8 @@ export function concludeRun(meta: MetaState, run: RunState): RunSummary {
   }
 
   meta.runIndex += 1
+  meta.deepestReached = Math.max(meta.deepestReached, Math.round(run.maxDepthReached))
+  if (surfaced) meta.runsSurvived += 1
 
   const buriedIds = new Set(
     surfaced
@@ -200,6 +216,7 @@ export function concludeRun(meta: MetaState, run: RunState): RunSummary {
     // 沒用完的補給賣回給補給商。全滅的話當然什麼都沒有
     summary.refunded = Math.floor(loadoutCost(run.supplies) * SUPPLY_REFUND)
     meta.funds += summary.earned + summary.refunded
+    meta.totalEarned += summary.earned
   }
 
   for (const c of fallen) {
@@ -369,9 +386,11 @@ function makeRecruit(meta: MetaState): Character {
   const [hp, s2] = nextInt(meta.rngState, 14, 22)
   const [tol, s3] = nextInt(s2, 8, 16)
   const [cap, s4] = nextInt(s3, 12, 22)
-  meta.rngState = s4
+  const [bio, s5] = pick(s4, RECRUIT_BIOS)
+  meta.rngState = s5
 
   return {
+    bio,
     traits: rollTraits(meta),
     id: `r${meta.runIndex}-${meta.roster.length}-${meta.applicants.length}-${Math.round(meta.rngState % 99991)}`,
     name,

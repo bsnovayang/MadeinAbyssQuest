@@ -60,7 +60,90 @@ function traitLine(c: Character): string {
     .join('')}</span>`
 }
 
-function memberCard(c: Character, selected: string[], meta: MetaState): string {
+/** 展開後的隊員頁：介紹、能力、特質、損傷、羈絆 */
+function memberDetail(c: Character, meta: MetaState): string {
+  const stats = effectiveStats(c)
+  const delta = (base: number, eff: number) =>
+    eff === base ? `${eff}` : `${eff}<span class="detail__base">（基礎 ${base}）</span>`
+
+  const traits = traitsOf(c)
+  const afflictionCounts = new Map<string, number>()
+  for (const id of c.afflictions) afflictionCounts.set(id, (afflictionCounts.get(id) ?? 0) + 1)
+
+  const bonds = Object.entries(c.bonds)
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([id, n]) => {
+      const other = meta.roster.find((r) => r.id === id)
+      if (!other) return ''
+      const gone = other.status !== 'alive'
+      return `<li class="${gone ? 'bond--gone' : ''}">${esc(other.name)}　一起活著回來過 ${n} 次${
+        gone ? '　（已經不在了）' : ''
+      }</li>`
+    })
+    .join('')
+
+  return `
+    <div class="detail">
+      ${c.bio ? `<p class="detail__bio">${esc(c.bio)}</p>` : ''}
+
+      <dl class="detail__stats">
+        <div><dt>HP</dt><dd>${delta(c.maxHp, stats.maxHp)}</dd></div>
+        <div><dt>耐受度</dt><dd>${delta(c.maxTolerance, stats.maxTolerance)}</dd></div>
+        <div><dt>負重</dt><dd>${delta(c.carryCapacity, stats.carryCapacity)}</dd></div>
+      </dl>
+
+      ${
+        c.immuneToCurse
+          ? '<p class="detail__note">機械之軀 —— 上升負荷對他完全無效。</p>'
+          : ''
+      }
+
+      ${
+        traits.length
+          ? `<h3 class="detail__h">能力與特質</h3>
+             <ul class="detail__list">
+               ${traits
+                 .map(
+                   (t) =>
+                     `<li><span class="trait ${t.signature ? 'trait--signature' : ''}">${esc(t.name)}</span>${esc(t.desc)}</li>`,
+                 )
+                 .join('')}
+             </ul>`
+          : ''
+      }
+
+      ${
+        afflictionCounts.size
+          ? `<h3 class="detail__h">永久損傷</h3>
+             <ul class="detail__list">
+               ${[...afflictionCounts.entries()]
+                 .map(([id, n]) => {
+                   const def = afflictionById(id)
+                   if (!def) return ''
+                   const cure =
+                     def.cureCost > 0
+                       ? `<button class="ward" data-cure="${esc(c.id)}:${esc(id)}" type="button" ${
+                           meta.funds >= def.cureCost ? '' : 'disabled'
+                         }>治療 ${def.cureCost}</button>`
+                       : '<span class="detail__base">無法治療</span>'
+                   return `<li><span class="trait trait--bad">${esc(def.name)}${n > 1 ? `×${n}` : ''}</span>${esc(def.desc)} ${cure}</li>`
+                 })
+                 .join('')}
+             </ul>`
+          : ''
+      }
+
+      ${bonds ? `<h3 class="detail__h">羈絆</h3><ul class="detail__list detail__list--bonds">${bonds}</ul>` : ''}
+    </div>`
+}
+
+function memberCard(
+  c: Character,
+  selected: string[],
+  meta: MetaState,
+  expanded: string | null,
+): string {
   const chosen = selected.includes(c.id)
   const stats = effectiveStats(c)
   const party = selected
@@ -82,18 +165,10 @@ function memberCard(c: Character, selected: string[], meta: MetaState): string {
     })
     .join('')
 
-  const cures = c.afflictions
-    .filter((id, i, arr) => arr.indexOf(id) === i)
-    .map((id) => {
-      const def = afflictionById(id)
-      if (!def || def.cureCost <= 0) return ''
-      const can = meta.funds >= def.cureCost
-      return `<button class="ward" data-cure="${esc(c.id)}:${esc(id)}" type="button" ${can ? '' : 'disabled'}>治療${esc(def.name)} ${def.cureCost}</button>`
-    })
-    .join('')
+  const open = expanded === c.id
 
   return `
-    <div class="roster__card ${chosen ? 'roster__card--on' : ''}">
+    <div class="roster__card ${chosen ? 'roster__card--on' : ''} ${open ? 'roster__card--open' : ''}">
       <button class="roster__pick" data-pick="${esc(c.id)}" type="button">
         <span class="roster__name">${esc(c.name)}</span>
         <span class="roster__stats">
@@ -104,7 +179,12 @@ function memberCard(c: Character, selected: string[], meta: MetaState): string {
         ${marks.length ? `<span class="roster__afflictions">${marks.map(esc).join('・')}</span>` : ''}
         ${bondList ? `<span class="roster__bonds">羈絆　${bondList}</span>` : ''}
       </button>
-      ${cures ? `<div class="member__btns">${cures}</div>` : ''}
+      <div class="member__btns">
+        <button class="ward" data-detail="${esc(c.id)}" type="button">
+          ${open ? '收合' : '詳細'}
+        </button>
+      </div>
+      ${open ? memberDetail(c, meta) : ''}
     </div>`
 }
 
@@ -249,7 +329,43 @@ function dangerZone(wiping: boolean): string {
     </section>`
 }
 
-export type TownTab = 'party' | 'supply' | 'orphanage' | 'graves'
+export type TownTab = 'party' | 'supply' | 'orphanage' | 'records'
+
+function records(meta: MetaState): string {
+  const rate =
+    meta.runIndex > 0 ? Math.round((meta.runsSurvived / meta.runIndex) * 100) : null
+
+  const lost = meta.lostSouls
+    .map(
+      (s) => `
+        <li class="grave">
+          <span class="grave__name">${esc(s.name)}</span>
+          <span class="grave__where">${esc(formatDepth(s.depth))}　還在下面</span>
+        </li>`,
+    )
+    .join('')
+
+  return `
+    <section>
+      <h2>紀錄</h2>
+      <dl class="detail__stats detail__stats--wide">
+        <div><dt>下潛次數</dt><dd>${meta.runIndex}</dd></div>
+        <div><dt>活著回來</dt><dd>${meta.runsSurvived}${rate === null ? '' : `<span class="detail__base">（${rate}%）</span>`}</dd></div>
+        <div><dt>最深抵達</dt><dd>${esc(formatDepth(meta.deepestReached))}</dd></div>
+        <div><dt>累計帶回</dt><dd>${meta.totalEarned}</dd></div>
+      </dl>
+    </section>
+
+    ${
+      lost
+        ? `<section>
+             <h2>還在下面的人　${meta.lostSouls.length}</h2>
+             <p class="hint">他們沒有被帶回來。深淵裡有東西還在叫著這些名字。</p>
+             <ul class="graves">${lost}</ul>
+           </section>`
+        : ''
+    }`
+}
 
 /** 準備一趟探索是有順序的：先決定誰去，才決定帶多少 */
 function tabBar(tab: TownTab, meta: MetaState, selected: string[]): string {
@@ -257,7 +373,7 @@ function tabBar(tab: TownTab, meta: MetaState, selected: string[]): string {
     { id: 'party', label: '① 隊伍', note: `${selected.length}/${PARTY_SIZE}` },
     { id: 'supply', label: '② 補給', note: `${loadoutCost(meta.loadout)}` },
     { id: 'orphanage', label: '孤兒院', note: `${meta.applicants.length}` },
-    { id: 'graves', label: '墓地', note: `${meta.graveyard.length}` },
+    { id: 'records', label: '紀錄', note: `${meta.graveyard.length}` },
   ]
 
   return `
@@ -280,12 +396,15 @@ export interface TownView {
   muted: boolean
   wiping?: boolean
   tab?: TownTab
+  /** 目前展開詳細資料的隊員 */
+  expanded?: string | null
 }
 
 export function renderTown(view: TownView): string {
   const { meta, selected, summary, muted } = view
   const wiping = view.wiping ?? false
   const tab = view.tab ?? 'party'
+  const expanded = view.expanded ?? null
 
   const available = availableMembers(meta)
   const cost = loadoutCost(meta.loadout)
@@ -309,7 +428,9 @@ export function renderTown(view: TownView): string {
     ${summaryPanel(summary)}
     <section>
       <h2>名冊　選 ${selected.length} / ${PARTY_SIZE}</h2>
-      <div class="roster">${available.map((c) => memberCard(c, selected, meta)).join('')}</div>
+      <div class="roster">${available
+        .map((c) => memberCard(c, selected, meta, expanded))
+        .join('')}</div>
       ${pairs.length ? `<p class="roster__hint">一起活著回來過：${esc(pairs.join('、'))}</p>` : ''}
       ${
         available.length === 0
@@ -341,7 +462,7 @@ export function renderTown(view: TownView): string {
     party: partyPage,
     supply: supplyPage,
     orphanage: orphanage(meta),
-    graves: `${graveyard(meta)}${dangerZone(wiping)}`,
+    records: `${records(meta)}${graveyard(meta)}${dangerZone(wiping)}`,
   }
 
   return `

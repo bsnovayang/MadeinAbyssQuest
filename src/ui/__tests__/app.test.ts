@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createApp, type App } from '../app'
+import { isMuted } from '../audio'
 
 let root: HTMLDivElement
 let app: App
@@ -90,8 +91,8 @@ describe('奧斯城', () => {
   })
 
   it('分頁可以自由切換，回城時回到第一步', () => {
-    goto('graves')
-    expect(app.snapshot().tab).toBe('graves')
+    goto('records')
+    expect(app.snapshot().tab).toBe('records')
     expect(root.textContent).toContain('墓地')
 
     goto('orphanage')
@@ -137,6 +138,70 @@ describe('探索', () => {
     // 直接重繪出結束畫面再按鈕
     click('[data-node],[data-ascent]')
     await Promise.resolve()
+  })
+})
+
+describe('隊員詳細', () => {
+  it('展開後看得到介紹、能力與特質', () => {
+    expect(exists('.detail')).toBe(false)
+    click('[data-detail="riko"]')
+
+    const detail = root.querySelector('.detail')!
+    expect(detail.querySelector('.detail__bio')?.textContent).toContain('萊莎')
+    expect(detail.textContent).toContain('耐受度')
+    expect(detail.textContent).toContain('深淵知識') // 莉可的招牌能力
+  })
+
+  it('展開不會影響隊伍的選擇', () => {
+    click('[data-detail="riko"]')
+    expect(app.snapshot().selected).toEqual([])
+
+    click('[data-pick="riko"]')
+    expect(app.snapshot().selected).toEqual(['riko'])
+    expect(exists('.detail')).toBe(true)
+  })
+
+  it('一次只展開一個，再按一次收合', () => {
+    click('[data-detail="riko"]')
+    click('[data-detail="reg"]')
+    expect(root.querySelectorAll('.detail')).toHaveLength(1)
+    expect(root.querySelector('.detail')?.textContent).toContain('機械人偶')
+
+    click('[data-detail="reg"]')
+    expect(exists('.detail')).toBe(false)
+  })
+
+  it('孤兒院的孩子也有來歷', () => {
+    goto('orphanage')
+    const bios = [...root.querySelectorAll('.applicant .roster__name')]
+    expect(bios.length).toBeGreaterThan(0)
+    expect(app.snapshot().meta.applicants.every((c) => c.bio.length > 0)).toBe(true)
+  })
+})
+
+describe('紀錄頁', () => {
+  beforeEach(() => goto('records'))
+
+  it('顯示下潛次數、生還次數、最深抵達與累計收益', () => {
+    const text = root.textContent ?? ''
+    expect(text).toContain('下潛次數')
+    expect(text).toContain('活著回來')
+    expect(text).toContain('最深抵達')
+    expect(text).toContain('累計帶回')
+  })
+
+  it('墓地與清除紀錄都在同一頁', () => {
+    expect(root.textContent).toContain('墓地')
+    expect(exists('[data-wipe]')).toBe(true)
+  })
+
+  it('留在深淵的人會單獨列出', () => {
+    expect(root.textContent).not.toContain('還在下面的人')
+
+    app.snapshot().meta.lostSouls.push({ name: '托比', depth: 8000 })
+    goto('records')
+    expect(root.textContent).toContain('還在下面的人')
+    expect(root.textContent).toContain('托比')
   })
 })
 
@@ -251,13 +316,13 @@ describe('孤兒院', () => {
 })
 
 describe('清除紀錄', () => {
-  beforeEach(() => goto('graves'))
+  beforeEach(() => goto('records'))
 
   it('要按兩次才會真的清除', () => {
     const meta = app.snapshot().meta
     meta.funds = 500
     meta.graveyard.push({ name: '托比', depth: 4000, cause: 'dead', buried: false, runIndex: 1 })
-    goto('graves')
+    goto('records')
 
     click('[data-wipe]')
     expect(exists('[data-wipe-confirm]')).toBe(true)
@@ -295,7 +360,7 @@ describe('清除紀錄', () => {
         .querySelector<HTMLElement>(sel)!
         .dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
 
-    hit('.tab[data-tab="graves"]')
+    hit('.tab[data-tab="records"]')
     hit('[data-wipe]')
     hit('[data-wipe-confirm]')
     expect(cleared).toBe(1)
@@ -323,6 +388,12 @@ describe('停用的按鈕都要說得出原因', () => {
     departWith('riko')
     expect(root.querySelectorAll('button.action[disabled]').length).toBeGreaterThan(0)
     assertAllExplained()
+  })
+})
+
+describe('音效', () => {
+  it('預設是關閉的 —— 難聽的音樂比沒有音樂更傷氣氛', () => {
+    expect(isMuted()).toBe(true)
   })
 })
 

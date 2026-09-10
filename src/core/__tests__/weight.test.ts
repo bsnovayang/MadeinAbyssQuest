@@ -5,6 +5,7 @@ import type { Character, Item } from '../types'
 const member = (id: string, cap: number, status: Character['status'] = 'alive'): Character => ({
   id,
   name: id,
+  bio: '',
   hp: 10,
   maxHp: 10,
   tolerance: 5,

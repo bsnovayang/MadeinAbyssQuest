@@ -124,6 +124,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
   let summary: RunSummary | null = null
   let selected: string[] = []
   let tab: TownTab = 'party'
+  let expanded: string | null = null
   let wiping = false
   let busy = false
   let campTimer: ReturnType<typeof setTimeout> | undefined
@@ -154,6 +155,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
         muted: audio.isMuted(),
         wiping,
         tab,
+        expanded,
       })
       root.classList.remove('mood--ascent')
       root.classList.toggle('mood--warm', summary?.surfaced ?? false)
@@ -312,6 +314,12 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     if (d.tab) {
       tab = d.tab as TownTab
       wiping = false
+      paint()
+      return
+    }
+
+    if (d.detail) {
+      expanded = expanded === d.detail ? null : d.detail
       paint()
       return
     }

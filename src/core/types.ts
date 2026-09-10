@@ -3,6 +3,8 @@ export type Direction = 'down' | 'up'
 export interface Character {
   id: string
   name: string
+  /** 一句話的來歷。孤兒院的孩子也有，這是讓玩家記住名字的第一步 */
+  bio: string
   hp: number
   /** 基礎值。永久損傷的扣減不寫進這裡，而是在出發時換算（見 core/meta.ts） */
   maxHp: number
