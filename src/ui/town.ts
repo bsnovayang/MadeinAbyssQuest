@@ -33,7 +33,7 @@ import { relicById } from '../data/relics'
 import { traitEffectText, traitsOf, traitTone, type TraitDef } from '../core/traits'
 import type { Character, SupplyKey } from '../core/types'
 import { suppliesWeight } from '../core/weight'
-import { settingsButton } from './controls'
+import { diaryButton, settingsButton } from './controls'
 
 function esc(s: string): string {
   return s.replace(
@@ -670,6 +670,8 @@ export interface TownView {
   summary: RunSummary | null
   /** 設定選單開著（齒輪高亮） */
   settingsOpen?: boolean
+  /** 日記的未讀頁數 */
+  diaryUnread?: number
   wiping?: boolean
   tab?: TownTab
   /** 目前展開詳細資料的隊員 */
@@ -760,6 +762,7 @@ export function renderTown(view: TownView): string {
         <span class="depth-bar__depth">奧斯城</span>
         <span class="depth-bar__layer">
           <span class="depth-bar__info">${esc(currentRank(meta).name)}<span class="dot">·</span>資金 <span data-funds>${meta.funds}</span><span class="dot">·</span>第 ${meta.day} 日</span>
+          ${diaryButton(view.diaryUnread ?? 0, false)}
           ${settingsButton(view.settingsOpen ?? false)}
         </span>
       </div>

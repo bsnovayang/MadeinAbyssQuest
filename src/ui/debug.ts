@@ -44,12 +44,17 @@ export function debugMenu(ctx: DebugContext): string {
       <button class="debug__close" data-debug="close" type="button">關閉</button>
     </div>`
 
+  const diary = section('日記', [
+    { id: 'diary-all', label: '解鎖全部日記' },
+    { id: 'diary-unread', label: '全部變回未讀' },
+  ])
+
   if (ctx.view === 'town') {
     return `${head}${section('奧斯城', [
       { id: 'funds', label: '資金 +5000' },
       { id: 'vault-relic', label: '倉庫多一件未鑑定遺物' },
       { id: 'summary', label: '模擬回城結算（含晉升）' },
-    ])}`
+    ])}${diary}`
   }
 
   if (ctx.view === 'ended') {
@@ -82,5 +87,6 @@ export function debugMenu(ctx: DebugContext): string {
       { id: 'relic', label: '下一步撿到遺物' },
       { id: 'hurt', label: '全隊受傷' },
       { id: 'restore', label: '全部補滿' },
-    ])}`
+    ])}
+    ${diary}`
 }

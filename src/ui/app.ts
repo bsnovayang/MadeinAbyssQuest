@@ -45,6 +45,16 @@ import type { SfxName } from '../audio/sfx'
 import type { BattleState } from '../core/battle'
 import { distributeBurden } from '../core/curse'
 import { LAYERS, layerAt } from '../core/depth'
+import {
+  markRead,
+  unlockedPages,
+  unlockPage,
+  unlockReached,
+  unreadCount,
+  type DiaryEntry,
+  type UnlockContext,
+} from '../core/diary'
+import { DIARY_PAGES, diaryPageById } from '../data/diary'
 import { makeNode } from '../core/map'
 import { RELIC_DEFS } from '../data/relics'
 import { describeProgress } from '../core/quests'
@@ -52,6 +62,7 @@ import type { NodeKind, RunState, SupplyKey } from '../core/types'
 import { diffBattle, HEAVY_SHARE, snapshotBattle, type BattleFx } from './battle'
 import { settingsPanel } from './controls'
 import { debugMenu } from './debug'
+import { renderDiary, type DiaryView } from './diary'
 import { createPanelState, togglePanel, type PanelId } from './panels'
 import { decayOf, omenLevel, render, type HpDeltas } from './render'
 import { clearToasts, showToasts, type ToastLine } from './toast'
@@ -209,11 +220,22 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
   const settings = document.createElement('div')
   settings.className = 'settings'
   settings.hidden = true
+  // 日記的閱讀視窗，活在重繪之外
+  const diaryBox = document.createElement('div')
+  diaryBox.className = 'diary'
+  diaryBox.hidden = true
   // F2 測試選單，同樣活在重繪之外
   const debugBox = document.createElement('div')
   debugBox.className = 'debug'
   debugBox.hidden = true
-  root.replaceChildren(view, omen, toasts, settings, ...(deps.debug ? [debugBox] : []))
+  root.replaceChildren(
+    view,
+    omen,
+    toasts,
+    settings,
+    diaryBox,
+    ...(deps.debug ? [debugBox] : []),
+  )
 
   const panels = createPanelState()
   let shownLogId = 0
@@ -299,6 +321,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       view.innerHTML = render(run, {
         deltas,
         settingsOpen: !settings.hidden,
+        diaryUnread: unreadCount(meta.diary),
         quests,
         target: battleTarget,
         panels,
@@ -318,6 +341,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
         selected,
         summary,
         settingsOpen: !settings.hidden,
+        diaryUnread: unreadCount(meta.diary),
         wiping,
         tab,
         expanded,
@@ -376,6 +400,9 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       if (prev !== undefined && prev !== c.hp) deltas[c.id] = prev - c.hp
     }
 
+    // 第一次抵達的每一層，都解鎖一頁日記（主線劇情.md 2b）
+    const diaryPages = unlockReached(meta.diary, current.maxDepthReached, diaryContext(current))
+
     const battleFx = battle && beforeBattle ? diffBattle(beforeBattle, battle) : undefined
     const finished = !!battle && !current.battle
 
@@ -408,6 +435,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     const lastLine = lines[lines.length - 1]
     if (found && lastLine && !grim) lastLine.doodle = true
     showToasts(toasts, lines)
+    announceDiary(diaryPages)
     persist()
 
     const layer = layerAt(current.depth)
@@ -523,6 +551,83 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     requestAnimationFrame(tick)
   }
 
+  // ─── 日記 ──────────────────────────────────────────────────
+
+  let diaryView: DiaryView = { mode: 'page', index: 0 }
+  let lastDiaryIndex = 0
+
+  function diaryContext(r: RunState): UnlockContext {
+    return {
+      day: meta.day + r.daysElapsed,
+      depth: r.depth,
+      party: r.party.filter((c) => c.status === 'alive').map((c) => c.name),
+    }
+  }
+
+  /** 解鎖了新的頁：跳一則提示、配寫字聲。一次很多頁就合併成一則 */
+  function announceDiary(entries: readonly DiaryEntry[]): void {
+    if (entries.length === 0) return
+    const only = entries.length === 1 ? diaryPageById(entries[0]?.pageId ?? '') : undefined
+    showToasts(toasts, [
+      {
+        text: only ? `日記多了一頁：〈${only.title}〉` : `日記多了 ${entries.length} 頁`,
+        tone: 'warm',
+      },
+    ])
+    audio.sfx('write', 0.7)
+  }
+
+  function paintDiary(): void {
+    if (diaryView.mode === 'page') {
+      const pages = unlockedPages(meta.diary)
+      const index = Math.max(0, Math.min(pages.length - 1, diaryView.index))
+      diaryView = { mode: 'page', index }
+      const page = pages[index]
+      if (page && !meta.diary.read.includes(page.def.id)) {
+        markRead(meta.diary, page.def.id)
+        persist()
+      }
+      lastDiaryIndex = index
+    }
+    diaryBox.innerHTML = renderDiary(meta.diary, diaryView)
+    // 紅點跟著讀過的頁數變
+    paint()
+  }
+
+  /** 打開時翻到最早一頁未讀的；沒有未讀，就回到上次讀的那一頁 */
+  function openDiary(): void {
+    if (run?.battle) return
+    const pages = unlockedPages(meta.diary)
+    const unread = pages.findIndex((p) => !meta.diary.read.includes(p.def.id))
+    diaryView = { mode: 'page', index: unread >= 0 ? unread : lastDiaryIndex }
+    diaryBox.hidden = false
+    audio.sfx('page', 0.6)
+    paintDiary()
+  }
+
+  function closeDiary(): void {
+    diaryBox.hidden = true
+    paint()
+  }
+
+  function turnDiary(action: string): void {
+    const total = unlockedPages(meta.diary).length
+    if (action === 'open') return openDiary()
+    if (action === 'close') return closeDiary()
+
+    if (action === 'toc') {
+      diaryView = { mode: 'toc' }
+    } else if (diaryView.mode === 'page') {
+      const next = diaryView.index + (action === 'next' ? 1 : -1)
+      if (next < 0 || next >= total) return
+      diaryView = { mode: 'page', index: next }
+    } else {
+      return
+    }
+    audio.sfx('page', 0.5)
+    paintDiary()
+  }
+
   // ─── 測試選單（F2）─────────────────────────────────────────
 
   function paintDebug(): void {
@@ -586,6 +691,24 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
   function runDebug(action: string): void {
     if (action === 'close') {
       debugBox.hidden = true
+      return
+    }
+
+    // ── 日記（城裡、探索中都能用）──
+    if (action === 'diary-all') {
+      const ctx = run ? diaryContext(run) : { day: meta.day, depth: 0, party: ['莉可'] }
+      const fresh = DIARY_PAGES.map((p) => unlockPage(meta.diary, p.id, ctx)).filter(
+        (e): e is DiaryEntry => e !== null,
+      )
+      paint()
+      announceDiary(fresh)
+      persist()
+      return
+    }
+    if (action === 'diary-unread') {
+      meta.diary.read = []
+      paint()
+      persist()
       return
     }
 
@@ -769,8 +892,10 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     battleRef = null
     clearToasts(toasts)
     root.classList.remove('mood--camp')
+    const diaryPages = unlockReached(meta.diary, run.maxDepthReached, diaryContext(run))
     paint()
     audio.sfx('page', 1.3)
+    announceDiary(diaryPages)
     syncAudio()
     persist()
   }
@@ -847,6 +972,14 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     const d = el.dataset
 
     if (d.debug) return runDebug(d.debug)
+
+    if (d.diary) return turnDiary(d.diary)
+    if (d.diaryGoto) {
+      diaryView = { mode: 'page', index: Number(d.diaryGoto) }
+      audio.sfx('page', 0.5)
+      paintDiary()
+      return
+    }
 
     if (d.settings) {
       setSettingsOpen(settings.hidden)
@@ -1077,7 +1210,28 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       if (target?.closest('.settings__card') || target?.closest('[data-settings]')) return
       setSettingsOpen(false)
     })
+    // 日記：點旁邊的暗處關閉；手機可以左右滑翻頁
+    diaryBox.addEventListener('click', (ev) => {
+      if (ev.target === diaryBox) closeDiary()
+    })
+    let touchX: number | null = null
+    diaryBox.addEventListener('touchstart', (ev) => {
+      touchX = ev.touches[0]?.clientX ?? null
+    })
+    diaryBox.addEventListener('touchend', (ev) => {
+      const endX = ev.changedTouches[0]?.clientX
+      if (touchX === null || endX === undefined) return
+      const dx = endX - touchX
+      touchX = null
+      if (Math.abs(dx) > 50) turnDiary(dx < 0 ? 'next' : 'prev')
+    })
+
     document.addEventListener('keydown', (ev) => {
+      if (!diaryBox.hidden) {
+        if (ev.key === 'Escape') closeDiary()
+        if (ev.key === 'ArrowRight') turnDiary('next')
+        if (ev.key === 'ArrowLeft') turnDiary('prev')
+      }
       if (ev.key === 'Escape' && !settings.hidden) setSettingsOpen(false)
       if (ev.key === 'F2' && deps.debug) {
         ev.preventDefault()

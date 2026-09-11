@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { ASCENT_WARMTH, createApp, type App, type AudioPort, type MusicScene } from '../app'
 import { isMusicMuted, isSfxMuted } from '../audio'
+import { unlockReached } from '../../core/diary'
 import { createMeta, deployParty, hireCost, spendingFloor } from '../../core/meta'
 import { createRun } from '../../core/run'
 
@@ -237,11 +238,14 @@ describe('探索畫面的收合', () => {
 describe('淡出提示', () => {
   it('行動之後會出現提示，而不是把紀錄攤在畫面上', async () => {
     departWith('riko', 'reg')
-    expect(root.querySelectorAll('.toast').length).toBe(0)
+    // 出發時唯一的提示是日記多了一頁，探索紀錄不會一次攤出來
+    const notDiary = () =>
+      [...root.querySelectorAll('.toast')].filter((t) => !t.textContent?.includes('日記'))
+    expect(notDiary().length).toBe(0)
 
     click('[data-node]')
     await new Promise((r) => setTimeout(r, 0))
-    expect(root.querySelectorAll('.toast').length).toBeGreaterThan(0)
+    expect(notDiary().length).toBeGreaterThan(0)
   })
 
   it('展開面板不會讓提示重播', async () => {
@@ -803,6 +807,62 @@ describe('配樂', () => {
     await flush()
     expect(swells).toBe(1)
     expect(last(warmth)).toBe(ASCENT_WARMTH)
+  })
+})
+
+/** 主線劇情.md 2b：劇情寫在日記裡，不打斷遊戲 */
+describe('日記', () => {
+  const badge = () =>
+    root.querySelector('[data-diary="open"] .diary-btn__badge')?.textContent ?? ''
+  const title = () => root.querySelector('.diary__title')?.textContent ?? ''
+  const diaryHidden = () => root.querySelector<HTMLElement>('.diary')!.hidden
+
+  it('一開始就有一頁未讀的序章，標題列有紅點', () => {
+    expect(badge()).toBe('1')
+  })
+
+  it('打開就翻到未讀的那一頁，讀過紅點就消失', () => {
+    click('[data-diary="open"]')
+    expect(diaryHidden()).toBe(false)
+    expect(title()).toBe('鈴聲')
+    expect(badge()).toBe('')
+
+    click('[data-diary="close"]')
+    expect(diaryHidden()).toBe(true)
+  })
+
+  it('出發就解鎖第一層；一步跨過兩層，一次解鎖兩頁', async () => {
+    departWith('riko', 'reg')
+    expect(root.querySelector('.toasts')?.textContent).toContain('日記多了一頁：〈第一次往下〉')
+
+    for (const n of app.snapshot().run!.choices) n.depth = 3000
+    click('[data-node]')
+    await flush()
+    expect(root.querySelector('.toasts')?.textContent).toContain('日記多了 2 頁')
+    // 序章、第一層、第二層、第三層
+    expect(badge()).toBe('4')
+  })
+
+  it('翻頁、看目錄、從目錄跳到某一頁', () => {
+    const meta = app.snapshot().meta
+    unlockReached(meta.diary, 16000, { day: 40, depth: 16000, party: ['莉可'] })
+    click('[data-diary="open"]')
+    expect(title()).toBe('鈴聲')
+
+    click('[data-diary="next"]')
+    expect(title()).toBe('第一次往下')
+    click('[data-diary="prev"]')
+    expect(title()).toBe('鈴聲')
+
+    click('[data-diary="toc"]')
+    expect(exists('.diary__toc')).toBe(true)
+    click('[data-diary-goto="3"]')
+    expect(title()).toBe('大斷層')
+  })
+
+  it('戰鬥中不能打開日記', async () => {
+    expect(await untilBattle()).toBe(true)
+    expect(root.querySelector('[data-diary="open"]')?.hasAttribute('disabled')).toBe(true)
   })
 })
 

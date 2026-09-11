@@ -1,5 +1,6 @@
 import { afflictionById, CURSE_AFFLICTIONS, effectiveStats } from './affliction'
 import { layerAt } from './depth'
+import { createDiary, normalizeDiary, type DiaryState } from './diary'
 import { nextInt, pick } from './rng'
 import {
   evaluateQuest,
@@ -59,6 +60,8 @@ export interface MetaState {
   deepestReached: number
   /** 累計帶回地表的價值 */
   totalEarned: number
+  /** 莉可的日記：解鎖的劇情頁與讀過的頁（主線劇情.md 2b） */
+  diary: DiaryState
   rngState: number
 }
 
@@ -195,6 +198,7 @@ export function createMeta(rngState = 20260910): MetaState {
     runsSurvived: 0,
     deepestReached: 0,
     totalEarned: 0,
+    diary: createDiary(),
     rngState,
   }
   refreshApplicants(meta)
@@ -220,6 +224,7 @@ export function normalizeMeta(meta: MetaState): MetaState {
   meta.departDepth ??= 0
   meta.vault ??= []
   meta.takeDown ??= []
+  meta.diary = normalizeDiary(meta.diary)
   for (const c of [...meta.roster, ...meta.applicants]) {
     c.afflictions ??= []
     c.traits ??= []

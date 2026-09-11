@@ -4,6 +4,8 @@ import { makeNode } from '../../core/map'
 import { createMeta, deployParty, type RunSummary } from '../../core/meta'
 import type { NodeKind } from '../../core/types'
 import { settingsPanel } from '../controls'
+import { renderDiary } from '../diary'
+import { createDiary, unlockReached } from '../../core/diary'
 import { renderTown } from '../town'
 import { beginAscent, createRun, moveTo } from '../../core/run'
 import type { HpDeltas } from '../render'
@@ -64,6 +66,39 @@ describe('render', () => {
 
     expect(html).toContain('wound--up')
     expect(html).toContain('莉可 +4')
+  })
+
+  describe('日記的閱讀畫面', () => {
+    it('一頁寫著章節、標題、日數與地點', () => {
+      const html = renderDiary(createDiary(), { mode: 'page', index: 0 })
+      expect(html).toContain('序章　鈴聲')
+      expect(html).toContain('第 1 日　奧斯城')
+      expect(html).toContain('這本筆記，就從今天開始寫')
+      expect(html).toContain('1 / 1')
+    })
+
+    it('目錄裡還沒解鎖的頁是空白頁 —— 玩家知道後面還有', () => {
+      const html = renderDiary(createDiary(), { mode: 'toc' })
+      expect(html).toContain('鈴聲')
+      expect(html).toContain('（空白頁）')
+    })
+
+    it('第五層以下的頁，有一行不是莉可寫的', () => {
+      const diary = createDiary()
+      unlockReached(diary, 12500, { day: 30, depth: 12500, party: ['莉可'] })
+      const pages = diary.entries.length
+      const html = renderDiary(diary, { mode: 'page', index: pages - 1 })
+      expect(html).toContain('diary__foreign')
+      expect(html).toContain('diary__page--decay-5')
+    })
+  })
+
+  it('標題列有日記，未讀頁數顯示成紅點；戰鬥中不能打開', () => {
+    const s = createRun('diary-btn')
+    expect(render(s, { ...ui(), diaryUnread: 3 })).toMatch(/data-diary="open"[\s\S]*?>3<\/span>/)
+
+    s.battle = createBattle(1, s.party, 1)
+    expect(render(s, ui())).toMatch(/data-diary="open"[\s\S]*?disabled/)
   })
 
   describe('行動之前就看得到會花掉什麼', () => {
