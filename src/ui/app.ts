@@ -46,25 +46,30 @@ import { clearToasts, showToasts, type ToastLine } from './toast'
 import type { SaveData } from './storage'
 import { renderTown, type TownTab } from './town'
 
+export type MusicScene = 'town' | 'explore' | 'battle'
+
+/** 撤離歸途沿用探索曲，但聲音變悶（企劃書 15-5b） */
+export const ASCENT_WARMTH = 0.35
+
 /** 音效與存檔都從外面注入，讓整個 UI 層可以在 jsdom 裡被真的點擊 */
 export interface AudioPort {
   ensure(): void
-  setVoices(alive: readonly boolean[]): void
+  /** 換場景時配樂淡入淡出 */
+  setScene(scene: MusicScene): void
+  /** 0 = 悶、冷；1 = 溫暖、開闊 */
   setWarmth(level: number): void
   swell(): void
   hush(ms: number): void
-  reset(): void
   toggleMute(): boolean
   isMuted(): boolean
 }
 
 export const silentAudio: AudioPort = {
   ensure: () => {},
-  setVoices: () => {},
+  setScene: () => {},
   setWarmth: () => {},
   swell: () => {},
   hush: () => {},
-  reset: () => {},
   toggleMute: () => false,
   isMuted: () => false,
 }
@@ -109,11 +114,10 @@ function shielded(audio: AudioPort): AudioPort {
 
   return {
     ensure: wrap(() => audio.ensure()),
-    setVoices: wrap((alive: readonly boolean[]) => audio.setVoices(alive)),
+    setScene: wrap((scene: MusicScene) => audio.setScene(scene)),
     setWarmth: wrap((level: number) => audio.setWarmth(level)),
     swell: wrap(() => audio.swell()),
     hush: wrap((ms: number) => audio.hush(ms)),
-    reset: wrap(() => audio.reset()),
     toggleMute: () => {
       try {
         return audio.toggleMute()
@@ -229,17 +233,18 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     }
   }
 
-  /** 聲部與暖度隨局勢改變（企劃書 16-2、16-4） */
+  /** 配樂隨局勢改變（企劃書 15-5b、16-4） */
   function syncAudio(): void {
-    if (!run) {
-      audio.setWarmth(0.85)
+    // 平安回到地表 —— 城鎮曲完整響起
+    if (!run || run.endReason === 'surfaced') {
+      audio.setScene('town')
+      audio.setWarmth(1)
       return
     }
-    audio.setVoices(run.party.map((c) => c.status === 'alive'))
-    if (run.endReason === 'surfaced') audio.setWarmth(1)
-    else if (run.over) audio.setWarmth(0)
-    else if (run.direction === 'up') audio.setWarmth(0.12)
-    else audio.setWarmth(0.5)
+    audio.setScene(run.battle ? 'battle' : 'explore')
+    if (run.over) audio.setWarmth(0)
+    else if (run.direction === 'up') audio.setWarmth(ASCENT_WARMTH)
+    else audio.setWarmth(1)
   }
 
   /**
@@ -308,7 +313,6 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     shownBattleLines = 0
     battleRef = null
     clearToasts(toasts)
-    audio.reset()
     root.classList.remove('mood--camp')
     paint()
     syncAudio()
@@ -326,7 +330,6 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     // 回城後從第一步開始，結算報告就在那一頁
     tab = 'party'
     clearToasts(toasts)
-    audio.reset()
     paint()
     syncAudio()
     persist()
@@ -350,8 +353,8 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     selected = []
     tab = 'party'
     wiping = false
-    audio.reset()
     paint()
+    syncAudio()
     persist()
   }
 
@@ -519,8 +522,8 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       return void act((r) => {
         camp(r)
         flashCamp()
+        // 漲起之後自己回到原本的暖度，歸途上紮營也不會把悶掉的聲音打開
         audio.swell()
-        audio.setWarmth(1)
       }, 300)
     }
 
@@ -564,6 +567,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     if (!run) replenish(meta)
     root.addEventListener('click', handleClick)
     paint()
+    syncAudio()
   }
 
   return {

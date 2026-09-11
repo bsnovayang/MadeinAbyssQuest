@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createApp, type App } from '../app'
+import { ASCENT_WARMTH, createApp, type App, type AudioPort, type MusicScene } from '../app'
 import { isMuted } from '../audio'
 import { createMeta, deployParty } from '../../core/meta'
 import { createRun } from '../../core/run'
@@ -28,6 +28,22 @@ function departWith(...ids: string[]): void {
   for (const id of ids) click(`[data-pick="${id}"]`)
   goto('supply')
   click('[data-depart]')
+}
+
+/** act() 是非同步的，點完要讓 microtask 跑完才看得到結果 */
+const flush = () => new Promise((r) => setTimeout(r, 0))
+
+/** 一路往下走到打起來為止 */
+async function untilBattle(): Promise<boolean> {
+  departWith('riko', 'reg', 'urna', 'tobi')
+  for (let i = 0; i < 40; i++) {
+    if (app.snapshot().run?.battle) return true
+    const node = root.querySelector('[data-node]')
+    if (!node) return false
+    node.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+    await flush()
+  }
+  return !!app.snapshot().run?.battle
 }
 
 beforeEach(async () => {
@@ -253,22 +269,6 @@ describe('淡出提示', () => {
 })
 
 describe('戰鬥', () => {
-  /** act() 是非同步的，點完要讓 microtask 跑完才看得到結果 */
-  const flush = () => new Promise((r) => setTimeout(r, 0))
-
-  /** 一路往下走到打起來為止 */
-  async function untilBattle(): Promise<boolean> {
-    departWith('riko', 'reg', 'urna', 'tobi')
-    for (let i = 0; i < 40; i++) {
-      if (app.snapshot().run?.battle) return true
-      const node = root.querySelector('[data-node]')
-      if (!node) return false
-      node.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
-      await flush()
-    }
-    return !!app.snapshot().run?.battle
-  }
-
   it('遭遇會切到戰鬥畫面，而且看得到行動順序', async () => {
     expect(await untilBattle()).toBe(true)
     expect(exists('.timeline')).toBe(true)
@@ -698,8 +698,89 @@ describe('停用的按鈕都要說得出原因', () => {
 })
 
 describe('音效', () => {
-  it('預設是關閉的 —— 難聽的音樂比沒有音樂更傷氣氛', () => {
+  it('預設是關閉的 —— 玩家自己決定要不要開', () => {
     expect(isMuted()).toBe(true)
+  })
+})
+
+/** 企劃書 15-5b 的場景規則 */
+describe('配樂', () => {
+  let scenes: MusicScene[]
+  let warmth: number[]
+  let swells: number
+
+  const last = <T>(xs: readonly T[]): T | undefined => xs[xs.length - 1]
+
+  beforeEach(async () => {
+    scenes = []
+    warmth = []
+    swells = 0
+    const port: AudioPort = {
+      ensure: () => {},
+      setScene: (s) => scenes.push(s),
+      setWarmth: (l) => warmth.push(l),
+      swell: () => swells++,
+      hush: () => {},
+      toggleMute: () => true,
+      isMuted: () => true,
+    }
+    root = document.createElement('div')
+    document.body.replaceChildren(root)
+    app = createApp(root, { pace: 0, seed: () => 'test-seed', audio: port })
+    await app.start()
+  })
+
+  it('一進遊戲是城鎮曲', () => {
+    expect(last(scenes)).toBe('town')
+    expect(last(warmth)).toBe(1)
+  })
+
+  it('出發下潛換成探索曲', () => {
+    departWith('riko')
+    expect(last(scenes)).toBe('explore')
+    expect(last(warmth)).toBe(1)
+  })
+
+  it('撤離時沿用探索曲，但聲音變悶', async () => {
+    departWith('riko', 'reg')
+    click('[data-ascent]')
+    await flush()
+    expect(last(scenes)).toBe('explore')
+    expect(last(warmth)).toBe(ASCENT_WARMTH)
+    expect(ASCENT_WARMTH).toBeLessThan(1)
+  })
+
+  it('遭遇敵人換成戰鬥曲，撤退後回到探索曲', async () => {
+    expect(await untilBattle()).toBe(true)
+    expect(last(scenes)).toBe('battle')
+
+    click('[data-flee]')
+    await flush()
+    expect(last(scenes)).toBe('explore')
+  })
+
+  it('回到奧斯城換回城鎮曲', async () => {
+    departWith('riko', 'reg')
+    const run = app.snapshot().run!
+    run.over = true
+    run.endReason = 'surfaced'
+    click('[data-panel="notes"]')
+    click('[data-return]')
+    expect(last(scenes)).toBe('town')
+    expect(last(warmth)).toBe(1)
+  })
+
+  it('紮營讓聲音漲起來，但不直接改暖度 —— 歸途上的悶聲不該被打開', async () => {
+    departWith('riko', 'reg')
+    click('[data-ascent]')
+    await flush()
+    const camp = root.querySelector<HTMLButtonElement>('[data-camp]')
+    if (!camp || camp.disabled) return
+
+    camp.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+    await flush()
+    expect(swells).toBe(1)
+    expect(last(warmth)).toBe(ASCENT_WARMTH)
   })
 })
 
@@ -772,11 +853,10 @@ describe('韌性', () => {
       seed: () => 's',
       audio: {
         ensure: boom,
-        setVoices: boom,
+        setScene: boom,
         setWarmth: boom,
         swell: boom,
         hush: boom,
-        reset: boom,
         toggleMute: boom,
         isMuted: () => false,
       },

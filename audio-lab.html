@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>音樂實驗室</title>
+    <style>
+      :root {
+        --paper: #f4ecd8;
+        --edge: #ded0b2;
+        --ink: #3f3226;
+        --soft: #6d5c48;
+        --faint: #9c8b76;
+        --warn: #a33d2a;
+      }
+      body {
+        margin: 0;
+        background: #2e2822;
+        color: var(--ink);
+        font-family: 'Iowan Old Style', 'Palatino Linotype', 'Songti TC', 'PingFang TC',
+          'Microsoft JhengHei', serif;
+      }
+      #lab {
+        max-width: 46rem;
+        min-height: 100vh;
+        margin: 0 auto;
+        padding: 1.2rem;
+        background: var(--paper);
+      }
+      h1 {
+        margin: 0;
+        font-size: 1.6rem;
+      }
+      h2 {
+        margin: 0 0 0.5rem;
+        font-size: 0.8rem;
+        letter-spacing: 0.2em;
+        color: var(--faint);
+      }
+      .lab-head p {
+        margin: 0.3rem 0 1rem;
+        font-size: 0.9rem;
+        color: var(--soft);
+      }
+      .lab-card {
+        border-top: 1px solid var(--edge);
+        padding: 0.9rem 0;
+      }
+      .lab-card ol {
+        margin: 0;
+        padding-left: 1.2rem;
+        font-size: 0.88rem;
+        line-height: 1.8;
+        color: var(--soft);
+      }
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 0.6rem;
+        font-family: ui-monospace, Consolas, monospace;
+        font-size: 0.82rem;
+        color: var(--ink);
+        background: #fbf6ea;
+        border: 1px solid var(--edge);
+      }
+      .lab-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+      }
+      button {
+        padding: 0.4rem 0.8rem;
+        font-family: inherit;
+        font-size: 0.9rem;
+        color: var(--ink);
+        background: transparent;
+        border: 1.5px solid var(--soft);
+        border-radius: 3px;
+        cursor: pointer;
+      }
+      button.primary {
+        font-weight: 700;
+        border-color: var(--ink);
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      select {
+        margin-left: 0.3rem;
+        font-family: inherit;
+      }
+      .status {
+        font-size: 0.88rem;
+        color: var(--soft);
+      }
+      .facts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem 1.6rem;
+        margin: 0.4rem 0;
+      }
+      .facts dt {
+        font-size: 0.72rem;
+        color: var(--faint);
+      }
+      .facts dd {
+        margin: 0;
+        font-weight: 700;
+      }
+      .voice {
+        margin-bottom: 0.4rem;
+        padding: 0.5rem 0.7rem;
+        border: 1px dashed var(--edge);
+        border-radius: 3px;
+      }
+      .voice--off {
+        opacity: 0.5;
+      }
+      .voice__row {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.5rem;
+      }
+      .voice__name {
+        font-weight: 700;
+      }
+      .voice__inst {
+        font-size: 0.82rem;
+        color: var(--faint);
+      }
+      .voice button {
+        margin-top: 0.35rem;
+      }
+      .voice .slider code {
+        min-width: 11.5em;
+        font-size: 0.78rem;
+        color: var(--soft);
+      }
+      .warn {
+        margin: 0.3rem 0;
+        font-size: 0.84rem;
+        color: var(--warn);
+      }
+      .hint {
+        font-size: 0.86rem;
+        color: var(--faint);
+      }
+      .slider {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin: 0.3rem 0;
+        font-size: 0.9rem;
+      }
+      .slider input {
+        flex: 1;
+      }
+      code {
+        padding: 0 0.25rem;
+        background: #fbf6ea;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="lab"></div>
+    <script type="module" src="/src/audio/lab.ts"></script>
+  </body>
+</html>
