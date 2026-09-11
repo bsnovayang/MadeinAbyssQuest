@@ -3,6 +3,8 @@ import type { LogTone } from '../core/types'
 export interface ToastLine {
   text: string
   tone: LogTone
+  /** 撿到東西：旁邊畫個小塗鴉（企劃書 16-4） */
+  doodle?: boolean
 }
 
 const LIFETIME = 4600
@@ -16,7 +18,7 @@ const MAX_VISIBLE = 4
 export function showToasts(host: HTMLElement, lines: readonly ToastLine[]): void {
   for (const line of lines) {
     const el = document.createElement('div')
-    el.className = `toast toast--${line.tone}`
+    el.className = `toast toast--${line.tone}${line.doodle ? ' toast--find' : ''}`
     el.textContent = line.text
     host.appendChild(el)
 

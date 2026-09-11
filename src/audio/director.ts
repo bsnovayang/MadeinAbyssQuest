@@ -56,18 +56,14 @@ export class MusicDirector {
     this.bus.hush(ms)
   }
 
-  /** 靜音時暫停整個 AudioContext，不在背景白白排程 */
+  /**
+   * 只調音量。AudioContext 還要給音效用，
+   * 要不要整個暫停由 ui/audio.ts 決定（音樂與音效都關掉時才暫停）。
+   */
   setMuted(muted: boolean): void {
     if (muted === this.muted) return
     this.muted = muted
     this.bus.setVolume(muted ? 0 : VOLUME)
-    if (muted) {
-      setTimeout(() => {
-        if (this.muted) void this.ctx.suspend()
-      }, 400)
-    } else {
-      void this.ctx.resume()
-    }
   }
 
   private async enter(id: TrackId): Promise<void> {

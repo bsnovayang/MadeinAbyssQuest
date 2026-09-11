@@ -38,10 +38,12 @@ import {
   useEscapeRelic,
   useMedicine,
 } from '../core/run'
+import type { SfxName } from '../audio/sfx'
 import type { BattleState } from '../core/battle'
+import { layerAt } from '../core/depth'
 import { describeProgress } from '../core/quests'
 import type { RunState, SupplyKey } from '../core/types'
-import { diffBattle, snapshotBattle, type BattleFx } from './battle'
+import { diffBattle, HEAVY_SHARE, snapshotBattle, type BattleFx } from './battle'
 import { createPanelState, togglePanel, type PanelId } from './panels'
 import { decayOf, render, type HpDeltas } from './render'
 import { clearToasts, showToasts, type ToastLine } from './toast'
@@ -65,8 +67,14 @@ export interface AudioPort {
   setWarmth(level: number): void
   swell(): void
   hush(ms: number): void
-  toggleMute(): boolean
-  isMuted(): boolean
+  /** 材質音效（企劃書 16-1）。音效關著時什麼也不做 */
+  sfx(name: SfxName, strength?: number): void
+  /** 回傳切換後是否關著 */
+  toggleMusic(): boolean
+  isMusicMuted(): boolean
+  /** 回傳切換後是否關著 */
+  toggleSfx(): boolean
+  isSfxMuted(): boolean
 }
 
 export const silentAudio: AudioPort = {
@@ -75,8 +83,11 @@ export const silentAudio: AudioPort = {
   setWarmth: () => {},
   swell: () => {},
   hush: () => {},
-  toggleMute: () => false,
-  isMuted: () => false,
+  sfx: () => {},
+  toggleMusic: () => false,
+  isMusicMuted: () => false,
+  toggleSfx: () => false,
+  isSfxMuted: () => false,
 }
 
 export interface AppDeps {
@@ -123,20 +134,21 @@ function shielded(audio: AudioPort): AudioPort {
     setWarmth: wrap((level: number) => audio.setWarmth(level)),
     swell: wrap(() => audio.swell()),
     hush: wrap((ms: number) => audio.hush(ms)),
-    toggleMute: () => {
-      try {
-        return audio.toggleMute()
-      } catch {
-        return false
-      }
-    },
-    isMuted: () => {
-      try {
-        return audio.isMuted()
-      } catch {
-        return false
-      }
-    },
+    sfx: wrap((name: SfxName, strength?: number) => audio.sfx(name, strength)),
+    toggleMusic: flag(() => audio.toggleMusic()),
+    isMusicMuted: flag(() => audio.isMusicMuted()),
+    toggleSfx: flag(() => audio.toggleSfx()),
+    isSfxMuted: flag(() => audio.isSfxMuted()),
+  }
+}
+
+function flag(fn: () => boolean): () => boolean {
+  return () => {
+    try {
+      return fn()
+    } catch {
+      return false
+    }
   }
 }
 
@@ -163,6 +175,9 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
   let expanded: string | null = null
   let battleTarget: string | null = null
   let wiping = false
+  // 只播一次的揭曉：畫過一次就清掉，換分頁不重播
+  let revealed: string | null = null
+  let freshSummary = false
   let busy = false
   let campTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -229,7 +244,8 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       if (!run.battle) battleTarget = null
       view.innerHTML = render(run, {
         deltas,
-        muted: audio.isMuted(),
+        muted: audio.isMusicMuted(),
+        sfxMuted: audio.isSfxMuted(),
         quests,
         target: battleTarget,
         panels,
@@ -245,11 +261,16 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
         meta,
         selected,
         summary,
-        muted: audio.isMuted(),
+        muted: audio.isMusicMuted(),
+        sfxMuted: audio.isSfxMuted(),
         wiping,
         tab,
         expanded,
+        revealed,
+        freshSummary,
       })
+      revealed = null
+      freshSummary = false
       root.classList.remove('mood--ascent')
       root.classList.toggle('mood--warm', summary?.surfaced ?? false)
     }
@@ -281,6 +302,10 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
 
     const beforeHp = Object.fromEntries(current.party.map((c) => [c.id, c.hp]))
     const beforeLog = current.log.length
+    const beforeLayer = layerAt(current.depth).id
+    const beforeNode = current.current.id
+    const beforeItems = current.carried.filter((i) => i.kind !== 'corpse').length
+    const beforeDays = current.daysElapsed
     await delay(pause * pace)
 
     const battle = current.battle
@@ -305,8 +330,28 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
 
     // 戰鬥在這一擊結束 —— 先停在戰鬥畫面，讓玩家看見最後一擊
     paint(finished ? {} : deltas, { battleFx, finalBattle: finished ? battle : undefined })
-    showToasts(toasts, drainToasts())
+
+    const found = current.carried.filter((i) => i.kind !== 'corpse').length > beforeItems
+    const lines = drainToasts()
+    const lastLine = lines[lines.length - 1]
+    if (found && lastLine && !grim) lastLine.doodle = true
+    showToasts(toasts, lines)
     persist()
+
+    const layer = layerAt(current.depth)
+    const layerChanged = layer.id !== beforeLayer
+    // 進入新的一層是儀式，就算伴隨著壞消息也要寫上標題
+    if (layerChanged) showLayerTitle(layer.id, layer.name)
+
+    // 重大事件的表現是靜止，不配音效（企劃書 16-3）
+    if (!grim) {
+      actionSounds(battle, battleFx, {
+        moved: current.current.id !== beforeNode,
+        layerChanged,
+        found,
+        camped: current.daysElapsed > beforeDays,
+      })
+    }
 
     if (grim) {
       navigator.vibrate?.(30)
@@ -323,6 +368,61 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
 
     root.classList.remove('app--held')
     busy = false
+  }
+
+  /** 一次行動的材質音效：翻頁、鉛筆、扣環、火堆（企劃書 16-8） */
+  function actionSounds(
+    battle: BattleState | null,
+    fx: BattleFx | undefined,
+    e: { moved: boolean; layerChanged: boolean; found: boolean; camped: boolean },
+  ): void {
+    if (battle && fx) {
+      const hits = Object.entries(fx.hp).filter(([, d]) => d > 0)
+      if (fx.downed.length > 0) {
+        audio.sfx('strike')
+      } else if (hits.length > 0) {
+        const heavy = hits.some(([id, d]) => {
+          const unit = battle.combatants.find((c) => c.id === id)
+          return !!unit && d >= unit.maxHp * HEAVY_SHARE
+        })
+        audio.sfx('pencil', heavy ? 1.6 : 1)
+      }
+    } else if (e.moved) {
+      audio.sfx('page', e.layerChanged ? 1.6 : 1)
+    }
+    if (e.found) audio.sfx('buckle')
+    if (e.camped) audio.sfx('fire')
+  }
+
+  /** 進入新的一層：跨頁的手寫標題，停留一下再淡掉（企劃書 16-8） */
+  function showLayerTitle(id: number, name: string): void {
+    const el = document.createElement('div')
+    el.className = 'layer-title'
+    const no = document.createElement('span')
+    no.className = 'layer-title__no'
+    no.textContent = `第${id}層`
+    const label = document.createElement('span')
+    label.className = 'layer-title__name'
+    label.textContent = name
+    el.append(no, label)
+    root.appendChild(el)
+    setTimeout(() => el.remove(), 3200)
+  }
+
+  /** 資金數字滾動到新的值。系統設定減少動態效果時直接跳到結果 */
+  function rollFunds(from: number, to: number): void {
+    const el = view.querySelector<HTMLElement>('[data-funds]')
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    if (!el || from === to || pace <= 0 || still) return
+
+    const start = performance.now()
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / 1200)
+      el.textContent = String(Math.round(from + (to - from) * (1 - (1 - t) ** 3)))
+      if (t < 1) requestAnimationFrame(tick)
+    }
+    el.textContent = String(from)
+    requestAnimationFrame(tick)
   }
 
   function flashCamp(): void {
@@ -355,13 +455,16 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     clearToasts(toasts)
     root.classList.remove('mood--camp')
     paint()
+    audio.sfx('page', 1.3)
     syncAudio()
     persist()
   }
 
   function returnToTown(): void {
     if (!run) return
-    summary = concludeRun(meta, run)
+    const fundsBefore = meta.funds
+    const report = concludeRun(meta, run)
+    summary = report
     run = null
     replenish(meta)
     selected = selected.filter((id) =>
@@ -369,8 +472,13 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     )
     // 回城後從第一步開始，結算報告就在那一頁
     tab = 'party'
+    freshSummary = true
     clearToasts(toasts)
     paint()
+    rollFunds(fundsBefore, meta.funds)
+    if (report.surfaced) audio.sfx('coin', 1.4)
+    // 印章蓋在結算寫完之後
+    if (report.promoted) setTimeout(() => audio.sfx('stamp'), 1400 * pace)
     syncAudio()
     persist()
   }
@@ -424,7 +532,12 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     const d = el.dataset
 
     if (d.mute) {
-      audio.toggleMute()
+      if (d.mute === 'sfx') {
+        // 打開音效時出個聲，讓玩家知道真的打開了
+        if (!audio.toggleSfx()) audio.sfx('pencil')
+      } else {
+        audio.toggleMusic()
+      }
       paint()
       return
     }
@@ -432,6 +545,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     if (d.tab) {
       tab = d.tab as TownTab
       wiping = false
+      audio.sfx('page', 0.5)
       paint()
       return
     }
@@ -469,15 +583,20 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     if (d.return) return returnToTown()
 
     if (d.identify) {
-      identifyRelic(meta, d.identify)
+      if (identifyRelic(meta, d.identify)) {
+        revealed = d.identify
+        audio.sfx('write')
+      }
       paint()
       persist()
       return
     }
 
     if (d.sell) {
-      sellRelic(meta, d.sell)
+      const before = meta.funds
+      if (sellRelic(meta, d.sell)) audio.sfx('coin')
       paint()
+      rollFunds(before, meta.funds)
       persist()
       return
     }
@@ -491,6 +610,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
 
     if (d.hire) {
       if (!hire(meta, d.hire)) return
+      audio.sfx('buckle')
       paint()
       persist()
       return
@@ -508,6 +628,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       const [key, delta] = d.buy.split(':')
       if (!key || !delta) return
       adjustLoadout(meta, key as SupplyKey, Number(delta))
+      audio.sfx('coin', 0.4)
       paint()
       persist()
       return
@@ -587,12 +708,15 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       if (corpse) {
         navigator.vibrate?.(30)
         audio.hush(1400)
+      } else {
+        audio.sfx('thud')
       }
       return
     }
 
     if (d.dropSupply) {
       dropSupply(current, d.dropSupply as SupplyKey)
+      audio.sfx('thud', 0.6)
       paint()
       persist()
     }

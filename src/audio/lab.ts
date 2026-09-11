@@ -3,6 +3,7 @@ import { AdaptiveTrack, MusicBus } from './music'
 import { instrumentInfo, noteName, SOUNDFONTS, type SoundSource } from './sampler'
 import { BUNDLED_NOTES } from './soundfont-manifest'
 import { DRAFTS } from './drafts'
+import { SFX_LABELS, SFX_NAMES, SfxBank } from './sfx'
 import { TRACKS } from './tracks'
 
 /**
@@ -43,6 +44,7 @@ const state = {
 
 let ctx: AudioContext | null = null
 let bus: MusicBus | null = null
+let sfx: SfxBank | null = null
 let track: AdaptiveTrack | null = null
 let descendTimers: ReturnType<typeof setTimeout>[] = []
 
@@ -113,6 +115,18 @@ root.innerHTML = `
     <label class="slider">音量 <input id="volume" type="range" min="0" max="100" /></label>
     <div class="lab-row">
       <button type="button" data-act="hush">負荷發作（音樂靜止 1.4 秒）</button>
+    </div>
+  </section>
+
+  <section class="lab-card">
+    <h2>材質音效</h2>
+    <p class="hint">遊戲裡的音效都是即時合成的，不需要音檔。每次播放會有一點隨機變化。</p>
+    <div class="lab-row">
+      ${SFX_NAMES.map((n) => `<button type="button" data-sfx="${n}">${esc(SFX_LABELS[n])}</button>`).join('')}
+    </div>
+    <div class="lab-row">
+      <button type="button" data-sfx="pencil" data-strength="1.6">重擊的鉛筆（力道 1.6）</button>
+      <button type="button" data-sfx="coin" data-strength="1.4">結算的硬幣（力道 1.4）</button>
     </div>
   </section>`
 
@@ -303,6 +317,15 @@ function allOn(): void {
 }
 
 root.addEventListener('click', (ev) => {
+  const sfxButton = (ev.target as HTMLElement).closest<HTMLButtonElement>('button[data-sfx]')
+  if (sfxButton?.dataset.sfx) {
+    const audio = (ctx ??= new AudioContext())
+    void audio.resume()
+    sfx ??= new SfxBank(audio)
+    sfx.play(sfxButton.dataset.sfx as (typeof SFX_NAMES)[number], Number(sfxButton.dataset.strength ?? 1))
+    return
+  }
+
   const button = (ev.target as HTMLElement).closest<HTMLButtonElement>('button[data-act]')
   if (!button || button.disabled) return
 

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createBattle } from '../../core/battle'
+import { createMeta, type RunSummary } from '../../core/meta'
+import { renderTown } from '../town'
 import { beginAscent, createRun, moveTo } from '../../core/run'
 import type { HpDeltas } from '../render'
 import { render } from '../render'
@@ -59,6 +61,39 @@ describe('render', () => {
 
     expect(html).toContain('wound--up')
     expect(html).toContain('莉可 +4')
+  })
+
+  it('狀態列有音樂與音效兩個開關，關著的會被劃掉', () => {
+    const html = render(createRun('toggles'), { ...ui(), muted: true, sfxMuted: false })
+    expect(html).toContain('data-mute="music"')
+    expect(html).toContain('data-mute="sfx"')
+    expect(html).toMatch(/mute mute--off"\s+data-mute="music"/)
+    expect(html).not.toMatch(/mute--off"\s+data-mute="sfx"/)
+  })
+
+  it('晉升像印章一樣蓋在結算的最後', () => {
+    const summary: RunSummary = {
+      surfaced: true,
+      earned: 300,
+      refunded: 0,
+      questsDone: [],
+      questsFailed: [],
+      daysSpent: 2,
+      promoted: '藍笛',
+      basesOpened: [],
+      relicsKept: [],
+      aftermath: [],
+      survivors: ['莉可'],
+      dead: [],
+      lost: [],
+      buried: [],
+      newAfflictions: [],
+    }
+    const html = renderTown({ meta: createMeta(), selected: [], summary, muted: true, freshSummary: true })
+    expect(html).toContain('report--fresh')
+    expect(html).toContain('report__line--stamp')
+    expect(html).toContain('全員平安回來了')
+    expect(html).toContain('data-funds')
   })
 
   it('放過火葬砲後，狀態列一直看得到回城的檢修費', () => {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest'
 import { ASCENT_WARMTH, createApp, type App, type AudioPort, type MusicScene } from '../app'
-import { isMuted } from '../audio'
+import { isMusicMuted, isSfxMuted } from '../audio'
 import { createMeta, deployParty } from '../../core/meta'
 import { createRun } from '../../core/run'
 
@@ -708,8 +708,12 @@ describe('停用的按鈕都要說得出原因', () => {
 })
 
 describe('音效', () => {
-  it('預設是關閉的 —— 玩家自己決定要不要開', () => {
-    expect(isMuted()).toBe(true)
+  it('音樂預設關閉 —— 玩家自己決定要不要開', () => {
+    expect(isMusicMuted()).toBe(true)
+  })
+
+  it('音效預設打開 —— 又短又輕，沒有它手感會差很多', () => {
+    expect(isSfxMuted()).toBe(false)
   })
 })
 
@@ -731,8 +735,11 @@ describe('配樂', () => {
       setWarmth: (l) => warmth.push(l),
       swell: () => swells++,
       hush: () => {},
-      toggleMute: () => true,
-      isMuted: () => true,
+      sfx: () => {},
+      toggleMusic: () => true,
+      isMusicMuted: () => true,
+      toggleSfx: () => true,
+      isSfxMuted: () => true,
     }
     root = document.createElement('div')
     document.body.replaceChildren(root)
@@ -791,6 +798,107 @@ describe('配樂', () => {
     await flush()
     expect(swells).toBe(1)
     expect(last(warmth)).toBe(ASCENT_WARMTH)
+  })
+})
+
+/** 企劃書 16-8：材質音效與揭曉時刻 */
+describe('音效與揭曉時刻', () => {
+  let sounds: string[]
+  let toggled: string[]
+
+  beforeEach(async () => {
+    sounds = []
+    toggled = []
+    const port: AudioPort = {
+      ensure: () => {},
+      setScene: () => {},
+      setWarmth: () => {},
+      swell: () => {},
+      hush: () => {},
+      sfx: (name) => sounds.push(name),
+      toggleMusic: () => (toggled.push('music'), true),
+      isMusicMuted: () => true,
+      toggleSfx: () => (toggled.push('sfx'), false),
+      isSfxMuted: () => false,
+    }
+    root = document.createElement('div')
+    document.body.replaceChildren(root)
+    app = createApp(root, { pace: 0, seed: () => 'test-seed', audio: port })
+    await app.start()
+  })
+
+  it('音樂與音效是分開的兩個開關', () => {
+    click('[data-mute="music"]')
+    click('[data-mute="sfx"]')
+    expect(toggled).toEqual(['music', 'sfx'])
+  })
+
+  it('往前走一步是翻頁聲', async () => {
+    departWith('riko', 'reg')
+    sounds.length = 0
+    click('[data-node]')
+    await flush()
+    expect(sounds).toContain('page')
+  })
+
+  it('進入新的一層時出現跨頁標題', async () => {
+    departWith('riko', 'reg')
+    for (const n of app.snapshot().run!.choices) n.depth = 2000
+    click('[data-node]')
+    await flush()
+    expect(root.querySelector('.layer-title')?.textContent).toContain('第2層')
+  })
+
+  it('撿到東西：提示旁邊畫個小塗鴉、扣環聲', async () => {
+    departWith('riko', 'reg')
+    const run = app.snapshot().run!
+    for (const n of run.choices) n.kind = 'relic'
+    const before = run.carried.length
+    sounds.length = 0
+
+    click('[data-node]')
+    await flush()
+    expect(run.carried.length).toBeGreaterThan(before)
+    expect(exists('.toast--find')).toBe(true)
+    expect(sounds).toContain('buckle')
+  })
+
+  it('鑑定時名稱、效果、代價依序寫出；換分頁後不重播', () => {
+    const meta = app.snapshot().meta
+    meta.funds = 99999
+    meta.vault.push({
+      id: 'v-test',
+      name: '沉甸甸的金屬片',
+      weight: 5,
+      kind: 'relic',
+      value: 900,
+      identified: false,
+      relicId: 'immovable-wedge',
+    })
+    goto('vault')
+    click('[data-identify="v-test"]')
+    expect(exists('.applicant--reveal')).toBe(true)
+    expect(sounds).toContain('write')
+
+    goto('vault')
+    expect(exists('.applicant--reveal')).toBe(false)
+  })
+
+  it('回城結算一行一行寫出，全員平安時寫上一句；換分頁後不重播', () => {
+    departWith('riko', 'reg')
+    const run = app.snapshot().run!
+    run.over = true
+    run.endReason = 'surfaced'
+    click('[data-panel="notes"]')
+    click('[data-return]')
+
+    expect(exists('.report--fresh')).toBe(true)
+    expect(root.querySelector('.report__headline')?.textContent).toContain('全員平安')
+    expect(sounds).toContain('coin')
+
+    goto('party')
+    expect(exists('.report')).toBe(true)
+    expect(exists('.report--fresh')).toBe(false)
   })
 })
 
@@ -867,8 +975,11 @@ describe('韌性', () => {
         setWarmth: boom,
         swell: boom,
         hush: boom,
-        toggleMute: boom,
-        isMuted: () => false,
+        sfx: boom,
+        toggleMusic: boom,
+        isMusicMuted: () => false,
+        toggleSfx: boom,
+        isSfxMuted: () => false,
       },
     })
     await a2.start()

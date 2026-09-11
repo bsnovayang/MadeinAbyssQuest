@@ -1,6 +1,17 @@
 import './style.css'
 import { createApp, type AudioPort } from './ui/app'
-import { ensureAudio, hush, isMuted, setScene, setWarmth, swell, toggleMute } from './ui/audio'
+import {
+  ensureAudio,
+  hush,
+  isMusicMuted,
+  isSfxMuted,
+  playSfx,
+  setScene,
+  setWarmth,
+  swell,
+  toggleMusic,
+  toggleSfx,
+} from './ui/audio'
 import { clearGame, loadGame, saveGame } from './ui/storage'
 
 const root = document.querySelector<HTMLDivElement>('#app')
@@ -12,8 +23,11 @@ const audio: AudioPort = {
   setWarmth,
   swell,
   hush,
-  toggleMute,
-  isMuted,
+  sfx: playSfx,
+  toggleMusic,
+  isMusicMuted,
+  toggleSfx,
+  isSfxMuted,
 }
 
 const app = createApp(root, {

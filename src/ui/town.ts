@@ -29,6 +29,7 @@ import { relicById } from '../data/relics'
 import { traitEffectText, traitsOf, traitTone, type TraitDef } from '../core/traits'
 import type { Character, SupplyKey } from '../core/types'
 import { suppliesWeight } from '../core/weight'
+import { soundToggles } from './controls'
 
 function esc(s: string): string {
   return s.replace(
@@ -38,9 +39,16 @@ function esc(s: string): string {
   )
 }
 
-function summaryPanel(summary: RunSummary | null): string {
+/**
+ * 上一趟的結算。
+ *
+ * 剛回到城裡的那一次，一行一行寫出來（企劃書 16-4：溫暖要大方）；
+ * 之後換分頁再看到，就只是一頁已經寫好的筆記，不重播。
+ */
+function summaryPanel(summary: RunSummary | null, fresh: boolean): string {
   if (!summary) return ''
 
+  const allHome = summary.surfaced && summary.dead.length === 0 && summary.lost.length === 0
   const lines: string[] = []
   lines.push(`這一趟花了 ${summary.daysSpent} 天。`)
   for (const q of summary.questsDone) lines.push(`委託達成：${q.title}　+${q.reward}`)
@@ -62,15 +70,21 @@ function summaryPanel(summary: RunSummary | null): string {
     const def = afflictionById(a.affliction)
     lines.push(`${a.name}留下了痕跡 —— ${def?.name ?? a.affliction}。${def?.desc ?? ''}`)
   }
-  if (summary.promoted) lines.push(`組合承認了你的資格。現在是${summary.promoted}。`)
   for (const b of summary.basesOpened) {
     lines.push(`${b}開放了。下一趟可以直接從那裡出發。`)
   }
 
+  // 晉升放在最後，像蓋在頁尾的印章
+  const stamp = summary.promoted
+    ? `<p class="report__line report__line--stamp" style="--i:${lines.length}">組合承認了你的資格。現在是${esc(summary.promoted)}。</p>`
+    : ''
+
   return `
-    <section class="report ${summary.surfaced ? 'report--warm' : ''}">
+    <section class="report ${summary.surfaced ? 'report--warm' : ''} ${fresh ? 'report--fresh' : ''}">
       <h2>上一趟</h2>
-      ${lines.map((l) => `<p class="report__line">${esc(l)}</p>`).join('')}
+      ${allHome ? '<p class="report__headline">全員平安回來了。</p>' : ''}
+      ${lines.map((l, i) => `<p class="report__line" style="--i:${i}">${esc(l)}</p>`).join('')}
+      ${stamp}
     </section>`
 }
 
@@ -424,7 +438,7 @@ export type TownTab = 'quests' | 'party' | 'supply' | 'orphanage' | 'vault' | 'r
  * 鑑定的價值不只是「告訴你那是什麼」，也是「讓你賣得掉」——
  * 未鑑定的遺物只值三成，所以就算玩家背熟了外觀，鑑定仍然有意義。
  */
-function vault(meta: MetaState): string {
+function vault(meta: MetaState, revealed: string | null): string {
   if (meta.vault.length === 0) {
     return `
       <section>
@@ -446,7 +460,10 @@ function vault(meta: MetaState): string {
         : '<span class="roster__stats">還不知道是什麼。鑑定過才賣得到好價錢。</span>'
 
       return `
-        <div class="applicant ${taking ? 'applicant--taking' : ''}">
+        <div class="applicant ${taking ? 'applicant--taking' : ''} ${
+          // 剛鑑定完：名稱、效果、代價依序寫出來，代價最後才出現
+          i.id === revealed ? 'applicant--reveal' : ''
+        }">
           <div class="applicant__row">
             <span class="roster__name">${esc(i.name)}</span>
             <span class="applicant__cost">${i.weight}kg</span>
@@ -619,11 +636,18 @@ export interface TownView {
   meta: MetaState
   selected: string[]
   summary: RunSummary | null
+  /** 音樂關著 */
   muted: boolean
+  /** 音效關著 */
+  sfxMuted?: boolean
   wiping?: boolean
   tab?: TownTab
   /** 目前展開詳細資料的隊員 */
   expanded?: string | null
+  /** 剛鑑定完的遺物。只在鑑定後那一次重繪帶入 */
+  revealed?: string | null
+  /** 剛回到城裡。結算只在這一次一行一行寫出來 */
+  freshSummary?: boolean
 }
 
 export function renderTown(view: TownView): string {
@@ -651,7 +675,7 @@ export function renderTown(view: TownView): string {
     .filter((s): s is string => !!s)
 
   const partyPage = `
-    ${summaryPanel(summary)}
+    ${summaryPanel(summary, view.freshSummary ?? false)}
     <section>
       <h2>名冊　選 ${selected.length} / ${PARTY_SIZE}</h2>
       <div class="roster">${available
@@ -696,7 +720,7 @@ export function renderTown(view: TownView): string {
     party: partyPage,
     supply: supplyPage,
     orphanage: orphanage(meta),
-    vault: vault(meta),
+    vault: vault(meta, view.revealed ?? null),
     records: `${records(meta)}${graveyard(meta)}${dangerZone(wiping)}`,
   }
 
@@ -705,8 +729,8 @@ export function renderTown(view: TownView): string {
       <div class="depth-bar__top">
         <span class="depth-bar__depth">奧斯城</span>
         <span class="depth-bar__layer">
-          ${esc(currentRank(meta).name)}　·　資金 ${meta.funds}　·　第 ${meta.day} 日
-          <button class="mute" data-mute="1" type="button" title="音效">${muted ? '🔇' : '🔊'}</button>
+          ${esc(currentRank(meta).name)}　·　資金 <span data-funds>${meta.funds}</span>　·　第 ${meta.day} 日
+          ${soundToggles(muted, view.sfxMuted ?? false)}
         </span>
       </div>
       ${tabBar(tab, meta, selected)}
