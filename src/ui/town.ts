@@ -26,7 +26,7 @@ import {
 import { MAX_ACTIVE_QUESTS, type Quest } from '../core/quests'
 import { baseFee } from '../data/bases'
 import { relicById } from '../data/relics'
-import { traitsOf } from '../core/traits'
+import { traitEffectText, traitsOf, traitTone, type TraitDef } from '../core/traits'
 import type { Character, SupplyKey } from '../core/types'
 import { suppliesWeight } from '../core/weight'
 
@@ -74,15 +74,38 @@ function summaryPanel(summary: RunSummary | null): string {
     </section>`
 }
 
+function traitClass(t: TraitDef): string {
+  if (t.signature) return 'trait trait--signature'
+  const tone = traitTone(t)
+  return tone === 'bad' ? 'trait trait--bad' : tone === 'mixed' ? 'trait trait--mixed' : 'trait'
+}
+
+/** 名冊卡片用：標籤加上一句實際效果，不靠懸停 */
 function traitLine(c: Character): string {
   const traits = traitsOf(c)
   if (traits.length === 0) return ''
   return `<span class="roster__traits">${traits
     .map(
       (t) =>
-        `<span class="trait ${t.signature ? 'trait--signature' : ''}" title="${esc(t.desc)}">${esc(t.name)}</span>`,
+        `<span class="trait-chip"><span class="${traitClass(t)}">${esc(t.name)}</span><span class="trait-chip__fx">${esc(traitEffectText(t))}</span></span>`,
     )
     .join('')}</span>`
+}
+
+/** 需要完整說明的地方用：標籤、實際效果、氛圍描述 */
+function traitList(c: Character): string {
+  const traits = traitsOf(c)
+  if (traits.length === 0) return ''
+  return `<ul class="trait-list">${traits
+    .map(
+      (t) => `
+        <li>
+          <span class="${traitClass(t)}">${esc(t.name)}</span>
+          <span class="trait-list__fx">${esc(traitEffectText(t))}</span>
+          <span class="trait-list__desc">${esc(t.desc)}</span>
+        </li>`,
+    )
+    .join('')}</ul>`
 }
 
 /** 展開後的隊員頁：介紹、能力、特質、損傷、羈絆 */
@@ -124,19 +147,7 @@ function memberDetail(c: Character, meta: MetaState): string {
           : ''
       }
 
-      ${
-        traits.length
-          ? `<h3 class="detail__h">能力與特質</h3>
-             <ul class="detail__list">
-               ${traits
-                 .map(
-                   (t) =>
-                     `<li><span class="trait ${t.signature ? 'trait--signature' : ''}">${esc(t.name)}</span>${esc(t.desc)}</li>`,
-                 )
-                 .join('')}
-             </ul>`
-          : ''
-      }
+      ${traits.length ? `<h3 class="detail__h">能力與特質</h3>${traitList(c)}` : ''}
 
       ${
         afflictionCounts.size
@@ -365,8 +376,9 @@ function orphanage(meta: MetaState): string {
             <span class="roster__name">${esc(c.name)}</span>
             <span class="applicant__cost ${afford ? '' : 'applicant__cost--no'}">${cost}</span>
           </div>
+          ${c.bio ? `<p class="applicant__bio">${esc(c.bio)}</p>` : ''}
           <span class="roster__stats">HP ${c.maxHp}　耐受 ${c.maxTolerance}　負重 ${c.carryCapacity}</span>
-          ${traitLine(c)}
+          ${traitList(c)}
           <button class="action" data-hire="${esc(c.id)}" type="button" ${afford ? '' : 'disabled'}>
             帶他走
             ${afford ? '' : '<span class="action__why">資金不足</span>'}

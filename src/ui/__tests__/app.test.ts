@@ -575,6 +575,21 @@ describe('孤兒院', () => {
     }
   })
 
+  it('卡片上直接看得到來歷與特質的實際效果 —— 不靠懸停', () => {
+    const meta = app.snapshot().meta
+    const kid = meta.applicants[0]!
+    kid.traits = ['sturdy', 'big-eater']
+    goto('records')
+    goto('orphanage')
+
+    const card = root.querySelector('.applicant')!
+    expect(card.querySelector('.applicant__bio')?.textContent).toBe(kid.bio)
+    expect(card.textContent).toContain('負重 +4')
+    expect(card.textContent).toContain('紮營多吃 1 份食物')
+    // 效果是文字本身，不是藏在 title 裡
+    expect(card.querySelector('[title]')).toBeNull()
+  })
+
   it('沒錢時不會招募，也會說明原因', () => {
     app.snapshot().meta.funds = 0
     goto('orphanage')

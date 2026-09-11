@@ -3,7 +3,14 @@ import { effectiveStats } from '../affliction'
 import { distributeBurden } from '../curse'
 import { createMeta, deployParty, recruit } from '../meta'
 import { camp, campFoodCost, createRun } from '../run'
-import { COMMON_TRAITS, partyBehaviors, traitById } from '../traits'
+import {
+  COMMON_TRAITS,
+  partyBehaviors,
+  TRAITS,
+  traitById,
+  traitEffectText,
+  traitTone,
+} from '../traits'
 import type { Character } from '../types'
 
 function member(traits: string[], over: Partial<Character> = {}): Character {
@@ -100,6 +107,26 @@ describe('特質接進既有系統', () => {
     run.choices = [{ id: 'o2', kind: 'obstacle', depth: 200, label: '斷崖' }]
     expect(partyBehaviors(run.party).ropeless).toBe(true)
     expect(run.supplies.rope).toBe(before)
+  })
+})
+
+describe('特質的說明', () => {
+  it('寫出實際規則，而不是只有氛圍', () => {
+    expect(traitEffectText(traitById('sturdy')!)).toBe('負重 +4')
+    expect(traitEffectText(traitById('big-eater')!)).toBe('紮營多吃 1 份食物')
+    expect(traitEffectText(traitById('survey')!)).toBe('看得出前方是什麼')
+  })
+
+  it('每一個特質都說得出功能 —— 沒有只剩氛圍文字的', () => {
+    for (const t of TRAITS) {
+      expect(traitEffectText(t).length, `${t.name} 沒有實際效果說明`).toBeGreaterThan(0)
+    }
+  })
+
+  it('好壞分得出來，決定標籤顏色', () => {
+    expect(traitTone(traitById('sturdy')!)).toBe('good')
+    expect(traitTone(traitById('frail')!)).toBe('bad')
+    expect(traitTone(traitById('apprentice')!)).toBe('bad')
   })
 })
 

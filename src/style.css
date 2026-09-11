@@ -1163,6 +1163,67 @@ h2 {
   color: var(--accent);
 }
 
+.trait--mixed {
+  border-color: #c9b27d;
+  color: var(--warm);
+}
+
+/* 名冊卡片：標籤加一句實際效果，不靠懸停（手機上沒有懸停） */
+.trait-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  margin: 0 0.5rem 0.15rem 0;
+}
+
+.trait-chip .trait {
+  margin: 0;
+}
+
+.trait-chip__fx {
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+}
+
+/* 需要完整說明的地方：標籤、規則、氛圍各一行 */
+.trait-list {
+  list-style: none;
+  margin: 0.35rem 0;
+  padding: 0;
+}
+
+.trait-list li {
+  padding: 0.2rem 0;
+  border-bottom: 1px dotted var(--paper-edge);
+}
+
+.trait-list li:last-child {
+  border-bottom: none;
+}
+
+.trait-list .trait {
+  margin-right: 0.4rem;
+}
+
+.trait-list__fx {
+  font-size: 0.82rem;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.trait-list__desc {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--ink-faint);
+}
+
+.applicant__bio {
+  margin: 0.25rem 0 0.35rem;
+  font-size: 0.84rem;
+  line-height: 1.7;
+  color: var(--ink-soft);
+}
+
 .trait--bad {
   border-color: #c9a79d;
   color: #a33d2a;

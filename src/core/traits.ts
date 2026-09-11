@@ -99,6 +99,50 @@ export function traitsOf(c: Character): TraitDef[] {
   return c.traits.map(traitById).filter((t): t is TraitDef => !!t)
 }
 
+const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`)
+
+/**
+ * 特質的實際功能。
+ *
+ * desc 是氛圍（「背得比別人多。」），這裡是規則（「負重 +4」）。
+ * 要花錢帶走一個可能會死的孩子，玩家有權知道他實際上能做什麼 ——
+ * 而且不能只靠滑鼠懸停，手機上沒有懸停。
+ */
+export function traitEffectText(t: TraitDef): string {
+  const parts: string[] = []
+  if (t.maxHp) parts.push(`HP ${signed(t.maxHp)}`)
+  if (t.maxTolerance) parts.push(`耐受 ${signed(t.maxTolerance)}`)
+  if (t.carryCapacity) parts.push(`負重 ${signed(t.carryCapacity)}`)
+  if (t.curseResist) parts.push(`上升時每步負荷 −${t.curseResist}`)
+  if (t.forage) parts.push(`採集 ${signed(t.forage)}`)
+  if (t.camp) parts.push(`紮營多恢復耐受 ${t.camp}`)
+  if (t.appetite) parts.push(`紮營多吃 ${t.appetite} 份食物`)
+  if (t.ropeless) parts.push('地形不需繩索')
+  if (t.survey) parts.push('看得出前方是什麼')
+  return parts.join('、')
+}
+
+/** 好的、壞的、還是有好有壞 —— 決定標籤顏色 */
+export function traitTone(t: TraitDef): 'good' | 'bad' | 'mixed' {
+  const good =
+    (t.maxHp ?? 0) > 0 ||
+    (t.maxTolerance ?? 0) > 0 ||
+    (t.carryCapacity ?? 0) > 0 ||
+    (t.curseResist ?? 0) > 0 ||
+    (t.forage ?? 0) > 0 ||
+    (t.camp ?? 0) > 0 ||
+    !!t.ropeless ||
+    !!t.survey
+  const bad =
+    (t.maxHp ?? 0) < 0 ||
+    (t.maxTolerance ?? 0) < 0 ||
+    (t.carryCapacity ?? 0) < 0 ||
+    (t.forage ?? 0) < 0 ||
+    (t.appetite ?? 0) > 0
+  if (good && bad) return 'mixed'
+  return bad ? 'bad' : 'good'
+}
+
 /** 整隊共享的行為修正。同一種能力只要有一個人具備就生效 */
 export interface PartyBehaviors {
   curseResist: number
