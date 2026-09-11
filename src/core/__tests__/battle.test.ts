@@ -231,3 +231,38 @@ describe('接進探索', () => {
     expect(s.supplies.medicine).toBe(before - 1)
   })
 })
+
+describe('失明：戰鬥中出手會落空', () => {
+  it('失明的隊員帶著落空機率上場，其他人不受影響', () => {
+    const members = party()
+    members[0]!.afflictions.push('blind')
+    const b = createBattle(1, members, 1)
+
+    expect(combatantById(b, members[0]!.id)!.miss).toBeCloseTo(0.25)
+    expect(combatantById(b, 'reg')!.miss).toBe(0)
+  })
+
+  it('落空時不造成傷害，而且寫進戰鬥紀錄', () => {
+    const b = battleAt(505, 1)
+    const foe = living(b, 'enemy')[0]!
+    const before = foe.hp
+    giveTurn(b, 'riko')
+    combatantById(b, 'riko')!.miss = 1
+
+    useSkill(b, 'strike', foe.id, 3)
+    expect(foe.hp).toBe(before)
+    expect(b.log.some((l) => l.includes('落空'))).toBe(true)
+  })
+
+  it('治療不會落空 —— 那靠的是手，不是眼睛', () => {
+    const b = battleAt(606, 1)
+    giveTurn(b, 'riko')
+    const riko = combatantById(b, 'riko')!
+    riko.miss = 1
+    const tobi = combatantById(b, 'tobi')!
+    tobi.hp = 1
+
+    useSkill(b, 'firstaid', 'tobi', 3)
+    expect(tobi.hp).toBeGreaterThan(1)
+  })
+})

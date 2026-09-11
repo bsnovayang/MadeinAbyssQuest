@@ -8,6 +8,8 @@ export interface AfflictionDef {
   maxHp?: number
   maxTolerance?: number
   carryCapacity?: number
+  /** 戰鬥中出手落空的機率，0～1 */
+  miss?: number
   /** 治療費用。0 = 永遠不可逆（企劃書 11-6） */
   cureCost: number
 }
@@ -39,11 +41,13 @@ export const AFFLICTIONS: readonly AfflictionDef[] = [
     cureCost: 1200,
   },
   {
+    // 不是單純的數字變差，而是真的「看不見」：揹不動太多、出手會落空。
+    // 沒治好也還能上場，只是不可靠 —— 失明的隊員不該變成只能丟掉的消耗品
     id: 'blind',
     name: '失明',
-    desc: '再也看不見了。',
-    maxHp: -2,
+    desc: '再也看不見了。揹不動太多，戰鬥中出手有四分之一會落空。',
     carryCapacity: -3,
+    miss: 0.25,
     cureCost: 0,
   },
   {
@@ -110,6 +114,14 @@ export function effectiveStats(c: Character): EffectiveStats {
     maxTolerance: Math.max(2, stats.maxTolerance),
     carryCapacity: Math.max(4, stats.carryCapacity),
   }
+}
+
+/** 戰鬥中出手落空的機率。多種損傷疊加，但最多六成 —— 總要打得中一點 */
+export function missChance(c: Character): number {
+  const total = c.afflictions
+    .map(afflictionById)
+    .reduce((sum, def) => sum + (def?.miss ?? 0), 0)
+  return Math.min(0.6, total)
 }
 
 export function describeAfflictions(c: Character): string[] {

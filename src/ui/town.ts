@@ -13,6 +13,8 @@ import {
   identifyCost,
   isFit,
   loadoutCost,
+  lodgingCost,
+  lodgingPayable,
   nextRank,
   openQuests,
   PARTY_SIZE,
@@ -510,6 +512,20 @@ function vault(meta: MetaState, revealed: string | null): string {
     </section>`
 }
 
+/** 休養的效果與花費，按之前就看得到 */
+function restEffect(meta: MetaState): string {
+  const cost = lodgingCost(meta)
+  const payable = lodgingPayable(meta)
+  const people = availableMembers(meta).length
+  const fee =
+    payable === cost
+      ? `食宿 −${cost}（${people} 人）`
+      : payable > 0
+        ? `食宿 −${payable}，其餘組合代墊`
+        : '食宿由組合代墊'
+  return `<span class="action__fx">全員 HP +25%・${fee}</span>`
+}
+
 function questCard(q: Quest, meta: MetaState, taken: boolean): string {
   const daysLeft = q.deadline - meta.day
   const full = activeQuests(meta).length >= MAX_ACTIVE_QUESTS
@@ -579,7 +595,7 @@ function questBoard(meta: MetaState): string {
       <h2>公告板</h2>
       ${open.map((q) => questCard(q, meta, false)).join('')}
       <div class="actions">
-        <button class="action" data-rest="1" type="button">在城裡待一天</button>
+        <button class="action" data-rest="1" type="button">在城裡待一天${restEffect(meta)}</button>
       </div>
       <p class="hint">等待會讓傷勢好轉，也會讓委託過期。</p>
     </section>`

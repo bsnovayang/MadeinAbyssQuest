@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { AFFLICTIONS } from '../affliction'
 import {
   adjustLoadout,
-  advanceDays,
   availableMembers,
   canSpend,
   clampLoadoutToFunds,
@@ -13,8 +12,10 @@ import {
   hireCost,
   identifyCost,
   identifyRelic,
+  LODGING_PER_HEAD,
   refreshApplicants,
   replenish,
+  restInTown,
   sellRelic,
   setDepartDepth,
   spendingFloor,
@@ -103,6 +104,43 @@ describe('城裡不會走進出不了門的死路', () => {
     expect(departCost(meta)).toBeLessThanOrEqual(meta.funds)
   })
 
+  describe('休養的食宿費', () => {
+    it('依人數收費，日子也會過去', () => {
+      const meta = freshTown()
+      const people = availableMembers(meta).length
+      meta.funds = spendingFloor() + 1000
+      const day = meta.day
+
+      const { paid, waived } = restInTown(meta)
+      expect(paid).toBe(people * LODGING_PER_HEAD)
+      expect(waived).toBe(0)
+      expect(meta.funds).toBe(spendingFloor() + 1000 - paid)
+      expect(meta.day).toBe(day + 1)
+    })
+
+    it('錢不夠時只扣到出發底線，其餘組合代墊', () => {
+      const meta = freshTown()
+      meta.funds = spendingFloor() + 20
+
+      const { paid, waived } = restInTown(meta)
+      expect(paid).toBe(20)
+      expect(waived).toBeGreaterThan(0)
+      expect(meta.funds).toBe(spendingFloor())
+    })
+
+    it('已經在底線時照樣能休養、照樣會好 —— 不然就是傷好不了又不能出勤的死局', () => {
+      const meta = freshTown()
+      meta.funds = spendingFloor()
+      const tobi = meta.roster.find((c) => c.id === 'tobi')!
+      tobi.hp = 1
+
+      restInTown(meta)
+      expect(meta.funds).toBe(spendingFloor())
+      expect(tobi.hp).toBeGreaterThan(1)
+      expectCanDepart(meta, '在底線休養之後')
+    })
+  })
+
   it('隨機亂花錢幾百次，每一步都還出得了門', () => {
     for (let seed = 1; seed <= 30; seed++) {
       let rng = seed * 7919
@@ -169,7 +207,7 @@ describe('城裡不會走進出不了門的死路', () => {
             label = '選出發點'
             break
           case 6:
-            advanceDays(meta, 1)
+            restInTown(meta)
             label = '休養'
             break
           case 7: {

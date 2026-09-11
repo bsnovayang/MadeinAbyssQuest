@@ -123,6 +123,34 @@ function spend(meta: MetaState, cost: number): void {
   clampLoadoutToFunds(meta)
 }
 
+/** 在城裡待一天，每個活著的人的食宿費 */
+export const LODGING_PER_HEAD = 15
+
+export function lodgingCost(meta: MetaState): number {
+  return availableMembers(meta).length * LODGING_PER_HEAD
+}
+
+/** 休養實際付得出多少：只付到出發底線為止，其餘組合代墊 */
+export function lodgingPayable(meta: MetaState): number {
+  return Math.max(0, Math.min(lodgingCost(meta), meta.funds - spendingFloor()))
+}
+
+/**
+ * 在城裡休養一天（企劃書 13-1）。
+ *
+ * 等傷好要有成本，否則帶著重傷回來和毫髮無傷回來差不多。
+ * 但食宿費只扣到出發底線 —— 付不起的部分組合代墊，休養永遠按得下去；
+ * 否則會出現「傷好不了、又不能出勤」的死局。
+ * 只有玩家主動休養才收：探索途中的天數、遺物造成的歲月流逝都不算。
+ */
+export function restInTown(meta: MetaState): { paid: number; waived: number } {
+  const cost = lodgingCost(meta)
+  const paid = lodgingPayable(meta)
+  spend(meta, paid)
+  advanceDays(meta, 1)
+  return { paid, waived: cost - paid }
+}
+
 /** 治療永久損傷。和雇人、鑑定一樣，要留下出發的錢 */
 export function cureAffliction(meta: MetaState, memberId: string, afflictionId: string): boolean {
   const member = meta.roster.find((c) => c.id === memberId)

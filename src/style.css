@@ -423,6 +423,21 @@ h2 {
   color: var(--paper-edge);
 }
 
+/* 這一格除了每步的消耗之外，還會發生什麼 */
+.choice__hint {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+/* 每走一步都會付的：水，撤離時還有負荷 */
+.deck__cost {
+  margin: -0.2rem 0 0.5rem;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+
 .actions {
   margin-top: 0.8rem;
   display: flex;
@@ -449,6 +464,16 @@ h2 {
 .action:disabled {
   opacity: 0.55;
   cursor: default;
+}
+
+/* 按得下去的按鈕，也說出按了會怎樣 */
+.action__fx {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--ink-faint);
+  letter-spacing: 0.02em;
+  margin-top: 0.1rem;
 }
 
 /* 停用的按鈕一定要說出原因，否則玩家分不出那是壞掉還是刻意的 */
@@ -598,6 +623,157 @@ h2 {
 @media (prefers-reduced-motion: reduce) {
   #app[data-decay] .log__text {
     transform: none;
+  }
+}
+
+/* ══ 負荷預兆的三段式（企劃書 16-3）══════════════════════════
+ *
+ * 預兆：危險越近，畫面邊緣越暗、警告的字跡越抖 —— 玩家先覺得不對勁，才看清數字
+ * 發作：不用衝擊，用靜止。畫面停在發作前一刻，褪色、動畫暫停、按不動
+ * 殘留：結果寫進筆記後，字跡還抖一陣子才停
+ *
+ * 暗角是獨立的一層（.omen），不和第四層以下的筆記劣化（#app::after）混在一起；
+ * 抖動只抖預兆相關的字，筆記本身的歪斜留給劣化。
+ */
+
+.omen {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(
+    ellipse 78% 72% at 50% 45%,
+    transparent 52%,
+    rgba(38, 26, 18, 0.6) 100%
+  );
+  transition: opacity 1.6s ease;
+}
+
+#app[data-omen='1'] .omen {
+  opacity: 0.35;
+}
+
+#app[data-omen='2'] .omen {
+  opacity: 0.7;
+}
+
+/* 下一步就撐不住：暗角像呼吸一樣起伏 */
+#app[data-omen='3'] .omen {
+  opacity: 1;
+  animation: omen-breathe 2.8s ease-in-out infinite;
+}
+
+@keyframes omen-breathe {
+  50% {
+    opacity: 0.72;
+  }
+}
+
+#app[data-omen='2'] .alert,
+#app[data-omen='2'] .fc--warn,
+#app[data-omen='2'] .depth-bar__curse {
+  display: inline-block;
+  animation: omen-shake-lo 0.6s steps(2, end) infinite;
+}
+
+#app[data-omen='3'] .alert,
+#app[data-omen='3'] .fc--warn,
+#app[data-omen='3'] .fc--doom,
+#app[data-omen='3'] .depth-bar__curse {
+  display: inline-block;
+  animation: omen-shake-hi 0.45s steps(2, end) infinite;
+}
+
+@keyframes omen-shake-lo {
+  0% {
+    transform: translate(0.4px, -0.3px);
+  }
+  50% {
+    transform: translate(-0.4px, 0.3px);
+  }
+}
+
+@keyframes omen-shake-hi {
+  0% {
+    transform: translate(0.9px, -0.6px) rotate(-0.4deg);
+  }
+  50% {
+    transform: translate(-0.8px, 0.7px) rotate(0.3deg);
+  }
+}
+
+/* 發作：畫面停在那一刻 */
+.app--seizure {
+  pointer-events: none;
+}
+
+.app--seizure .view {
+  filter: grayscale(0.85) contrast(1.08);
+}
+
+.app--seizure .view *,
+.app--seizure .omen {
+  animation-play-state: paused !important;
+}
+
+.app--seizure .omen {
+  opacity: 1;
+}
+
+/* 殘留：寫下來的壞消息和狀態列的字，還在抖 */
+.app--aftershock .vitals,
+.app--aftershock .alerts,
+.app--aftershock .member__hp {
+  animation: aftershock 2.4s ease-out both;
+}
+
+.app--aftershock .toast--grim {
+  animation:
+    toast-in 240ms ease both,
+    toast-out 900ms ease 6.5s both,
+    aftershock 2.4s ease-out 240ms both;
+}
+
+@keyframes aftershock {
+  0% {
+    transform: translate(1.3px, -0.9px) rotate(-0.35deg);
+  }
+  6% {
+    transform: translate(-1.1px, 0.8px) rotate(0.3deg);
+  }
+  14% {
+    transform: translate(1px, 0.5px) rotate(-0.2deg);
+  }
+  26% {
+    transform: translate(-0.7px, -0.4px);
+  }
+  42% {
+    transform: translate(0.45px, 0.3px);
+  }
+  62% {
+    transform: translate(-0.2px, 0);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+/* 減少動態效果：不抖、不起伏，只留暗角與褪色 */
+@media (prefers-reduced-motion: reduce) {
+  #app[data-omen] .omen,
+  #app[data-omen] .alert,
+  #app[data-omen] .fc,
+  #app[data-omen] .depth-bar__curse,
+  .app--aftershock .vitals,
+  .app--aftershock .alerts,
+  .app--aftershock .member__hp,
+  .app--aftershock .toast--grim {
+    animation: none;
+  }
+
+  .omen {
+    transition: none;
   }
 }
 
@@ -795,6 +971,81 @@ h2 {
 
 .carried__meta {
   white-space: nowrap;
+}
+
+/* ── 測試選單（F2）：開發用，刻意做得和遊戲本身不像 ─────────── */
+
+.debug {
+  position: fixed;
+  left: 0.6rem;
+  bottom: 0.6rem;
+  z-index: 50;
+  width: min(22rem, calc(100vw - 1.2rem));
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 0.5rem 0.7rem 0.6rem;
+  font-family: ui-monospace, Consolas, 'Microsoft JhengHei', monospace;
+  font-size: 0.78rem;
+  color: #2b2b2b;
+  background: #fffdf5;
+  border: 1.5px dashed #a33d2a;
+  border-radius: 4px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.3);
+}
+
+.debug__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  color: #a33d2a;
+}
+
+.debug__close {
+  font: inherit;
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+}
+
+.debug__section {
+  margin-top: 0.45rem;
+}
+
+.debug__title {
+  margin-bottom: 0.25rem;
+  color: #777;
+}
+
+.debug__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6.4rem, 1fr));
+  gap: 0.3rem;
+}
+
+.debug__btn {
+  font: inherit;
+  padding: 0.3rem 0.35rem;
+  color: #2b2b2b;
+  background: #fff;
+  border: 1px solid #bbb;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.debug__btn:hover:not(:disabled) {
+  border-color: #a33d2a;
+}
+
+.debug__btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.debug__hint {
+  margin: 0.4rem 0 0;
+  color: #777;
 }
 
 /* ── 設定：標題列的齒輪，點開才看到聲音的開關與音量 ────────── */

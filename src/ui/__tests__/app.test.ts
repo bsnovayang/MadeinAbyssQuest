@@ -352,8 +352,9 @@ describe('委託', () => {
     expect(text).toContain('階級不限制你能下潛多深')
   })
 
-  it('在城裡待一天會推進日期', () => {
+  it('在城裡待一天會推進日期，按之前就看得到食宿費', () => {
     const day = app.snapshot().meta.day
+    expect(root.querySelector('[data-rest]')?.textContent).toContain('食宿')
     click('[data-rest]')
     expect(app.snapshot().meta.day).toBe(day + 1)
   })
@@ -802,6 +803,114 @@ describe('配樂', () => {
     await flush()
     expect(swells).toBe(1)
     expect(last(warmth)).toBe(ASCENT_WARMTH)
+  })
+})
+
+describe('測試選單（F2）', () => {
+  const pressF2 = () =>
+    document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'F2', bubbles: true }))
+
+  async function withDebug(): Promise<void> {
+    root = document.createElement('div')
+    document.body.replaceChildren(root)
+    app = createApp(root, { pace: 0, seed: () => 'test-seed', debug: true })
+    await app.start()
+  }
+
+  it('沒有開啟時，F2 什麼也不做 —— 線上玩家碰不到', () => {
+    pressF2()
+    expect(exists('.debug')).toBe(false)
+  })
+
+  it('F2 打開、再按一次關閉', async () => {
+    await withDebug()
+    pressF2()
+    expect(root.querySelector<HTMLElement>('.debug')!.hidden).toBe(false)
+    expect(exists('[data-debug="summary"]')).toBe(true)
+
+    pressF2()
+    expect(root.querySelector<HTMLElement>('.debug')!.hidden).toBe(true)
+  })
+
+  it('探索中一鍵帶出三級預兆', async () => {
+    await withDebug()
+    departWith('riko', 'reg')
+    pressF2()
+    click('[data-debug="omen-3"]')
+    expect(root.dataset.omen).toBe('3')
+    click('[data-debug="omen-1"]')
+    expect(root.dataset.omen).toBe('1')
+  })
+
+  it('跳到第 4 層會出現跨頁標題', async () => {
+    await withDebug()
+    departWith('riko', 'reg')
+    pressF2()
+    click('[data-debug="layer-4"]')
+    await flush()
+    expect(root.querySelector('.layer-title')?.textContent).toContain('第4層')
+  })
+
+  it('立刻發作：寫下撐不住，字跡還在抖', async () => {
+    await withDebug()
+    departWith('riko', 'reg')
+    click('[data-node]')
+    await flush()
+    pressF2()
+    click('[data-debug="seizure"]')
+    await flush()
+    await flush()
+    expect(app.snapshot().run!.log.some((l) => l.text.includes('再也撐不住'))).toBe(true)
+    expect(root.classList.contains('app--aftershock')).toBe(true)
+  })
+
+  it('奧斯城：模擬回城結算會逐行寫出', async () => {
+    await withDebug()
+    pressF2()
+    click('[data-debug="summary"]')
+    expect(exists('.report--fresh')).toBe(true)
+    expect(exists('.report__line--stamp')).toBe(true)
+  })
+})
+
+/** 企劃書 16-3：負荷發作的三段式 */
+describe('負荷預兆與發作', () => {
+  it('撤離途中快撐不住時，畫面帶上預兆；回到城裡就消失', async () => {
+    departWith('riko', 'reg')
+    expect(root.dataset.omen).toBe('0')
+
+    click('[data-ascent]')
+    await flush()
+    const riko = app.snapshot().run!.party.find((c) => c.id === 'riko')!
+    // 耐受已歸零、HP 只剩一點：下一步就會倒下
+    riko.tolerance = 0
+    riko.hp = 1
+    click('[data-panel="notes"]')
+    expect(root.dataset.omen).toBe('3')
+
+    const run = app.snapshot().run!
+    run.over = true
+    run.endReason = 'surfaced'
+    click('[data-panel="notes"]')
+    click('[data-return]')
+    expect(root.dataset.omen).toBeUndefined()
+  })
+
+  it('撐不住的那一步：先靜止，寫出結果後字跡還抖一陣子', async () => {
+    departWith('riko', 'reg')
+    click('[data-ascent]')
+    await flush()
+    app.snapshot().run!.party.find((c) => c.id === 'riko')!.tolerance = 1
+    click('[data-panel="notes"]')
+
+    click('[data-node]')
+    await flush()
+    await flush()
+
+    expect(app.snapshot().run!.log.some((l) => l.text.includes('再也撐不住'))).toBe(true)
+    // 靜止已經結束，畫面恢復可以操作
+    expect(root.classList.contains('app--seizure')).toBe(false)
+    expect(root.classList.contains('app--aftershock')).toBe(true)
   })
 })
 

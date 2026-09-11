@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { createBattle } from '../../core/battle'
-import { createMeta, type RunSummary } from '../../core/meta'
+import { makeNode } from '../../core/map'
+import { createMeta, deployParty, type RunSummary } from '../../core/meta'
+import type { NodeKind } from '../../core/types'
 import { settingsPanel } from '../controls'
 import { renderTown } from '../town'
 import { beginAscent, createRun, moveTo } from '../../core/run'
 import type { HpDeltas } from '../render'
-import { render } from '../render'
+import { omenLevel, render } from '../render'
 import type { PanelState } from '../panels'
 
 /** 面板預設收合，測試需要看內容就全部展開 */
@@ -62,6 +64,97 @@ describe('render', () => {
 
     expect(html).toContain('wound--up')
     expect(html).toContain('莉可 +4')
+  })
+
+  describe('行動之前就看得到會花掉什麼', () => {
+    function withNode(kind: NodeKind, ids = ['riko', 'reg', 'urna', 'tobi']) {
+      const s = createRun('hint', { party: deployParty(createMeta(), ids) })
+      const [node] = makeNode(s.rngState, 99, 60, kind)
+      s.choices = [node]
+      return s
+    }
+
+    it('每走一步的消耗寫在選項上方', () => {
+      expect(render(withNode('empty'), ui())).toContain('每走一步：水 −1')
+    })
+
+    it('撤離時加上每人要付的耐受', () => {
+      const s = createRun('hint-up')
+      s.depth = 8000
+      s.maxDepthReached = 8000
+      beginAscent(s)
+      expect(render(s, ui())).toContain('每人耐受 −3')
+    })
+
+    it('地形：有繩索寫繩索 −1，沒繩索寫會受傷', () => {
+      const s = withNode('obstacle', ['riko', 'urna'])
+      expect(render(s, ui())).toContain('繩索 −1')
+      s.supplies.rope = 0
+      expect(render(s, ui())).toContain('沒有繩索：全員 −3 HP')
+    })
+
+    it('雷格在的時候，地形寫伸縮臂可以通過', () => {
+      expect(render(withNode('obstacle'), ui())).toContain('伸縮臂可以通過')
+    })
+
+    it('沒有測繪的隊伍看不出前方是什麼', () => {
+      expect(render(withNode('encounter', ['riko', 'reg']), ui())).toContain('看不出前方是什麼')
+    })
+
+    it('按得下去的紮營也寫出效果', () => {
+      expect(render(createRun('camp-fx'), ui())).toContain('食物 −1・HP 回 30%')
+    })
+  })
+
+  describe('負荷預兆', () => {
+    /** 在第四層撤離（每步負荷 3），只讓托比陷入危險，其他人撐得很久 */
+    function ascending(tobiTolerance: number, tobiHp = 16) {
+      const s = createRun('omen')
+      s.depth = 8000
+      s.maxDepthReached = 8000
+      beginAscent(s)
+      for (const c of s.party) {
+        c.tolerance = c.maxTolerance = 99
+        c.hp = c.maxHp = 99
+      }
+      const tobi = s.party[3]!
+      tobi.tolerance = tobiTolerance
+      tobi.hp = tobiHp
+      return s
+    }
+
+    it('下潛時沒有預兆', () => {
+      expect(omenLevel(createRun('omen-down'))).toBe(0)
+    })
+
+    it('看的是會不會倒下：快歸零淡淡暗角、3 步內倒下加深、下一步倒下最強', () => {
+      expect(omenLevel(ascending(99, 99))).toBe(0)
+      // 3 步後耐受歸零，但 HP 還多
+      expect(omenLevel(ascending(9, 99))).toBe(1)
+      // 耐受已歸零，每步 −6：HP 12 撐 2 步
+      expect(omenLevel(ascending(0, 12))).toBe(2)
+      // HP 6，下一步就倒下
+      expect(omenLevel(ascending(0, 6))).toBe(3)
+    })
+
+    /** 回報的問題：耐受已經扣到 0，還一直寫「下一個節點撐不住」 */
+    it('耐受歸零但還撐得住的人，寫的是每步扣多少 HP，不是撐不住', () => {
+      const html = render(ascending(0, 99), ui())
+      expect(html).toContain('耐受歸零・每步 −6 HP')
+      expect(html).not.toContain('下一步就會倒下')
+      expect(omenLevel(ascending(0, 99))).toBeLessThan(3)
+    })
+
+    it('真的快倒下的人才是 ☠，而且寫出第幾步', () => {
+      const html = render(ascending(0, 12), ui())
+      expect(html).toContain('☠ 托比　2 步後倒下')
+    })
+
+    it('探索結束就不再有預兆', () => {
+      const s = ascending(0, 6)
+      s.over = true
+      expect(omenLevel(s)).toBe(0)
+    })
   })
 
   it('標題列只放一個齒輪 —— 聲音設定收在裡面，小手機才不會擠到斷行', () => {
@@ -152,7 +245,7 @@ describe('render', () => {
     const html = render(s, ui())
     expect(html).toContain('歸途')
     expect(html).toContain('member__fill--tol')
-    expect(html).toContain('撐不住') // 預兆必須看得見
+    expect(html).toContain('倒下') // 預兆必須看得見
     expect(html).toContain('/步') // 每步的代價也要看得見
   })
 

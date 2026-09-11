@@ -144,6 +144,11 @@ function unitRow(
         <span class="unit__fill ${delta < 0 ? 'unit__fill--grow' : ''}" style="width:${pct.toFixed(0)}%;--from:${beforePct.toFixed(0)}%"></span>
       </span>
       ${c.charging > 0 && !down ? '<span class="unit__note">正在聚集力量</span>' : ''}
+      ${
+        (c.miss ?? 0) > 0 && !down
+          ? `<span class="unit__note">看不見・出手 ${Math.round(c.miss * 100)}% 會落空</span>`
+          : ''
+      }
       ${def && c.side === 'enemy' && selected === c.id ? `<span class="unit__desc">${esc(def.desc)}</span>` : ''}
     </button>`
 }

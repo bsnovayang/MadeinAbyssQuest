@@ -1,9 +1,10 @@
 import type { BattleState } from '../core/battle'
-import { distributeBurden, forecast, hasWardRelic, tierFor } from '../core/curse'
-import { formatDepth, layerAt } from '../core/depth'
+import { distributeBurden, hasWardRelic, outlook, tierFor, type Outlook } from '../core/curse'
+import { formatDepth, layerAt, waterCostAt } from '../core/depth'
 import { decayStage, distort, reliabilityAt } from '../core/perception'
 import { hashSeed } from '../core/rng'
 import {
+  campFoodCost,
   canCamp,
   canMove,
   canUseAnchor,
@@ -16,7 +17,8 @@ import {
   totalValue,
 } from '../core/run'
 import { runBehaviors } from '../core/traits'
-import type { NodeKind, RunState, Supplies } from '../core/types'
+import { extraWaterCost } from '../core/weight'
+import type { Character, NodeKind, RunState, Supplies } from '../core/types'
 import { relicById } from '../data/relics'
 import { renderBattle, type BattleFx } from './battle'
 import { settingsButton } from './controls'
@@ -92,13 +94,15 @@ function alerts(state: RunState): string[] {
   }
 
   if (state.direction === 'up') {
-    const fc = forecast(state)
+    const fc = outlook(state)
     for (const c of state.party) {
-      if (c.status !== 'alive') continue
-      const steps = fc[c.id]
-      if (steps === undefined || !Number.isFinite(steps)) continue
-      if (steps <= 1) out.push(`☠ ${c.name}　下一個節點撐不住`)
-      else if (steps <= 3) out.push(`⚠ ${c.name}　${steps} 節點後危險`)
+      const o = c.status === 'alive' ? fc[c.id] : undefined
+      if (!o || o.perStep <= 0) continue
+      // ☠ 只留給真的會倒下的人；耐受歸零但還撐得住，是 ⚠
+      if (o.down <= 1) out.push(`☠ ${c.name}　下一步就會倒下`)
+      else if (o.down <= 3) out.push(`☠ ${c.name}　${o.down} 步後倒下`)
+      else if (o.toZero === 0) out.push(`⚠ ${c.name}　耐受歸零・每步 −${o.hpPerStep} HP`)
+      else if (o.toZero <= 3) out.push(`⚠ ${c.name}　${o.toZero} 步後耐受歸零`)
     }
   }
 
@@ -197,18 +201,28 @@ function statusBar(state: RunState, ui: UiState): string {
 
 // ─── 面板內容 ────────────────────────────────────────────────
 
-function forecastLabel(steps: number): string {
-  if (!Number.isFinite(steps)) return '<span class="fc fc--safe">機械之軀</span>'
-  if (steps <= 1) return '<span class="fc fc--doom">☠ 下一個節點撐不住</span>'
-  if (steps <= 3) return `<span class="fc fc--warn">⚠ ${steps} 節點後危險</span>`
-  return `<span class="fc">還能撐 ${steps} 節點</span>`
+/**
+ * 隊伍面板上的預兆。
+ * 耐受歸零之後改講 HP —— 「撐不住」和「會倒下」是兩件事，玩家要分得出來。
+ */
+function forecastLabel(c: Character, o: Outlook | undefined): string {
+  if (!o || o.perStep <= 0) {
+    return `<span class="fc fc--safe">${c.immuneToCurse ? '機械之軀' : '不承受負荷'}</span>`
+  }
+  if (o.down <= 1) return '<span class="fc fc--doom">☠ 下一步就會倒下</span>'
+  if (o.down <= 3) return `<span class="fc fc--doom">☠ ${o.down} 步後倒下</span>`
+  if (o.toZero === 0) {
+    const fall = Number.isFinite(o.down) ? `・${o.down} 步後倒下` : ''
+    return `<span class="fc fc--warn">⚠ 耐受歸零・每步 −${o.hpPerStep} HP${fall}</span>`
+  }
+  if (o.toZero <= 3) return `<span class="fc fc--warn">⚠ ${o.toZero} 步後耐受歸零</span>`
+  return `<span class="fc">還能撐 ${o.toZero} 步</span>`
 }
 
 function partyBody(state: RunState, ui: UiState): string {
   const up = state.direction === 'up'
   const trust = reliabilityAt(state.depth)
-  const fc = up ? forecast(state) : {}
-  const share = up ? distributeBurden(state) : {}
+  const fc = up ? outlook(state) : {}
   const canWard = hasWardRelic(state)
 
   return state.party
@@ -254,8 +268,13 @@ function partyBody(state: RunState, ui: UiState): string {
                 <div class="member__fill member__fill--tol" style="width:${tPct.toFixed(0)}%"></div>
               </div>
               <div class="member__fc">
-                ${forecastLabel(fc[c.id] ?? Infinity)}
-                ${(share[c.id] ?? 0) > 0 ? `<span class="fc fc--cost">−${share[c.id]}/步</span>` : ''}
+                ${forecastLabel(c, fc[c.id])}
+                ${
+                  // 耐受歸零之後，每步扣的是 HP，已經寫在預兆裡
+                  (fc[c.id]?.perStep ?? 0) > 0 && (fc[c.id]?.toZero ?? 0) > 0
+                    ? `<span class="fc fc--cost">−${fc[c.id]?.perStep}/步</span>`
+                    : ''
+                }
               </div>
             </div>`
           : ''
@@ -420,6 +439,73 @@ function ended(state: RunState): string {
     </div>`
 }
 
+/** 按得下去的按鈕，也要說出按了會怎樣 */
+function effectOf(text: string): string {
+  return `<span class="action__fx">${esc(text)}</span>`
+}
+
+/**
+ * 每走一步都會付的：水，撤離時還有負荷。
+ * 寫在選項上方一次就好 —— 每個選項都寫一遍，真正不同的地方反而看不見。
+ */
+function stepCost(state: RunState): string {
+  const water = waterCostAt(state.depth) + extraWaterCost(encumbranceOfRun(state))
+  const parts = [`水 −${water}`]
+
+  if (state.direction === 'up') {
+    const share = distributeBurden(state)
+    const bearers = state.party
+      .map((c) => ({ name: c.name, amount: share[c.id] ?? 0 }))
+      .filter((b) => b.amount > 0)
+    const first = bearers[0]
+    if (first) {
+      const same = bearers.length > 1 && bearers.every((b) => b.amount === first.amount)
+      // 用籠子轉嫁時，負荷落在誰身上要寫出名字
+      parts.push(
+        same
+          ? `每人耐受 −${first.amount}`
+          : bearers.map((b) => `${b.name}耐受 −${b.amount}`).join('、'),
+      )
+    }
+  }
+
+  return `每走一步：${parts.join('・')}`
+}
+
+/**
+ * 這一格除了每步的消耗之外，還會發生什麼。
+ * 跟著「畫面上判讀出來的種類」走 —— 深層判讀錯了，提示也跟著錯，不會洩漏真正的種類。
+ */
+function nodeHint(state: RunState, kind: NodeKind | null): string {
+  if (kind === null) return '看不出前方是什麼'
+
+  switch (kind) {
+    case 'obstacle':
+      if (runBehaviors(state.party, state.carried).ropeless) return '伸縮臂可以通過・不耗繩索'
+      return state.supplies.rope > 0 ? '繩索 −1' : '沒有繩索：全員 −3 HP'
+    case 'encounter':
+      return '會打起來'
+    case 'forage':
+      return '可以補充食物和水'
+    case 'rest':
+      return `可以紮營・食物 −${campFoodCost(state)}`
+    case 'relic':
+      return '可能有遺物・會增加負重'
+    case 'anchor':
+      return '可以用錨點上升一層・繩索 −1'
+    case 'empty':
+      return ''
+  }
+}
+
+function campEffect(state: RunState): string {
+  const parts = [`食物 −${campFoodCost(state)}`, 'HP 回 30%']
+  if (state.direction === 'down') {
+    parts.push(`耐受 +${4 + runBehaviors(state.party, state.carried).camp}`)
+  }
+  return parts.join('・')
+}
+
 function actions(state: RunState): string {
   const up = state.direction === 'up'
   const blocked = !canMove(state)
@@ -429,45 +515,52 @@ function actions(state: RunState): string {
   /**
    * 標籤是「判讀」，會出錯；描述是「所見」，永遠誠實。
    * 因此深層的情報會說謊（企劃書 14-4），但玩家仍有判斷的依據。
+   * 回傳 null 表示看不出來。
    */
-  const kindLabel = (n: (typeof state.choices)[number]): string => {
-    if (!survey) return '？'
-    if (trust >= 1) return KIND_LABEL[n.kind]
+  const shownKind = (n: (typeof state.choices)[number]): NodeKind | null => {
+    if (!survey) return null
+    if (trust >= 1) return n.kind
     const misread = hashSeed(`read:${n.id}:${n.depth}`) % 100 < (1 - trust) * 55
-    if (!misread) return KIND_LABEL[n.kind]
+    if (!misread) return n.kind
     const kinds = Object.keys(KIND_LABEL) as NodeKind[]
-    const wrong = kinds[hashSeed(`wrong:${n.id}`) % kinds.length] as NodeKind
-    return KIND_LABEL[wrong]
+    return kinds[hashSeed(`wrong:${n.id}`) % kinds.length] as NodeKind
   }
 
   const buttons = state.choices
-    .map(
-      (n) => `
+    .map((n) => {
+      const kind = shownKind(n)
+      const hint = nodeHint(state, kind)
+      return `
         <button class="choice" data-node="${esc(n.id)}" type="button" ${blocked ? 'disabled' : ''}>
-          <span class="choice__kind ${survey ? '' : 'choice__kind--unknown'}">${kindLabel(n)}</span>
+          <span class="choice__kind ${survey ? '' : 'choice__kind--unknown'}">${kind ? KIND_LABEL[kind] : '？'}</span>
           ${esc(n.label)}
-        </button>`,
-    )
+          ${hint ? `<span class="choice__hint">${esc(hint)}</span>` : ''}
+        </button>`
+    })
     .join('')
+
+  const camp = canCamp(state)
+  const anchor = canUseAnchor(state)
 
   return `
     <section class="deck">
       <h2>${up ? '往上' : '往下'}</h2>
+      <p class="deck__cost">${esc(stepCost(state))}</p>
       <div class="choices">${buttons}</div>
       ${blocked ? '<p class="hint">背得太重了，一步也走不動。先丟掉一些東西。</p>' : ''}
       <div class="actions">
-        <button class="action" data-camp="1" type="button" ${canCamp(state) ? '' : 'disabled'}>
+        <button class="action" data-camp="1" type="button" ${camp ? '' : 'disabled'}>
           紮營
-          ${reasonWhy(campBlockedBy(state))}
+          ${camp ? effectOf(campEffect(state)) : reasonWhy(campBlockedBy(state))}
         </button>
-        <button class="action" data-anchor="1" type="button" ${canUseAnchor(state) ? '' : 'disabled'}>
+        <button class="action" data-anchor="1" type="button" ${anchor ? '' : 'disabled'}>
           錨點・上升一層
-          ${reasonWhy(anchorBlockedBy(state))}
+          ${anchor ? effectOf('繩索 −1・一次付完這層 3 步的負荷') : reasonWhy(anchorBlockedBy(state))}
         </button>
         ${
           up
-            ? `<button class="action" data-descend="1" type="button">還是再往下</button>`
-            : `<button class="action action--key" data-ascent="1" type="button">開始撤離</button>`
+            ? `<button class="action" data-descend="1" type="button">還是再往下${effectOf('已經受的負荷不會恢復')}</button>`
+            : `<button class="action action--key" data-ascent="1" type="button">開始撤離${effectOf('之後每一步都要付負荷')}</button>`
         }
       </div>
     </section>`
@@ -514,6 +607,26 @@ function relicBody(state: RunState): string {
 
 export function decayOf(state: RunState): number {
   return decayStage(state.depth)
+}
+
+/**
+ * 負荷預兆的強度（企劃書 16-3）：只看最危險的那個人，而且看的是「會不會倒下」。
+ *
+ * 每個人各疊一層暗角只會一片黑，玩家反而分不出誰危險 —— 那是隊伍面板的工作。
+ * 耐受歸零不等於倒下，所以最強的暗角只留給下一步就會倒下的人。
+ * 門檻和狀態列一致：下一步倒下 ☠、3 步內倒下 ☠、耐受快歸零 ⚠。
+ */
+export function omenLevel(state: RunState): 0 | 1 | 2 | 3 {
+  if (state.direction !== 'up' || state.over) return 0
+  const bearers = Object.values(outlook(state)).filter((o) => o.perStep > 0)
+  if (bearers.length === 0) return 0
+
+  const down = Math.min(...bearers.map((o) => o.down))
+  const toZero = Math.min(...bearers.map((o) => o.toZero))
+  if (down <= 1) return 3
+  if (down <= 3) return 2
+  if (down <= 6 || toZero <= 3) return 1
+  return 0
 }
 
 export function render(state: RunState, ui: UiState): string {

@@ -2,10 +2,13 @@ import {
   abandonQuest,
   activeQuests,
   adjustLoadout,
-  advanceDays,
+  restInTown,
   clampLoadoutToFunds,
+  availableMembers,
   concludeRun,
   cureAffliction,
+  currentRank,
+  nextRank,
   departCost,
   createMeta,
   deployParty,
@@ -40,13 +43,17 @@ import {
 } from '../core/run'
 import type { SfxName } from '../audio/sfx'
 import type { BattleState } from '../core/battle'
-import { layerAt } from '../core/depth'
+import { distributeBurden } from '../core/curse'
+import { LAYERS, layerAt } from '../core/depth'
+import { makeNode } from '../core/map'
+import { RELIC_DEFS } from '../data/relics'
 import { describeProgress } from '../core/quests'
-import type { RunState, SupplyKey } from '../core/types'
+import type { NodeKind, RunState, SupplyKey } from '../core/types'
 import { diffBattle, HEAVY_SHARE, snapshotBattle, type BattleFx } from './battle'
 import { settingsPanel } from './controls'
+import { debugMenu } from './debug'
 import { createPanelState, togglePanel, type PanelId } from './panels'
-import { decayOf, render, type HpDeltas } from './render'
+import { decayOf, omenLevel, render, type HpDeltas } from './render'
 import { clearToasts, showToasts, type ToastLine } from './toast'
 import type { SaveData } from './storage'
 import { renderTown, type TownTab } from './town'
@@ -55,6 +62,12 @@ export type MusicScene = 'town' | 'explore' | 'battle'
 
 /** 戰鬥在最後一擊結束時，停在戰鬥畫面多久才回到探索 */
 const FINAL_BLOW_MS = 1100
+
+/** 負荷發作時，畫面靜止多久才寫出結果（企劃書 16-3） */
+const SEIZURE_MS = 1000
+
+/** 發作後字跡還在抖的時間 */
+const AFTERSHOCK_MS = 2600
 
 /** 撤離歸途沿用探索曲，但聲音變悶（企劃書 15-5b） */
 export const ASCENT_WARMTH = 0.35
@@ -109,6 +122,8 @@ export interface AppDeps {
   seed?: () => string
   /** 回饋停頓的倍率。測試傳 0 就不必等 */
   pace?: number
+  /** 開啟 F2 測試選單。只在本機開發或網址帶 ?debug 時開 */
+  debug?: boolean
 }
 
 export interface App {
@@ -183,13 +198,22 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
 
   // 提示活在重繪之外，因此展開面板不會讓它重播
   const view = document.createElement('div')
+  view.className = 'view'
+  // 負荷預兆的暗角是獨立的一層，不和第四層以下的筆記劣化混在一起
+  const omen = document.createElement('div')
+  omen.className = 'omen'
+  omen.setAttribute('aria-hidden', 'true')
   const toasts = document.createElement('div')
   toasts.className = 'toasts'
   // 設定選單也活在重繪之外，拖曳音量滑桿時才不會被重繪打斷
   const settings = document.createElement('div')
   settings.className = 'settings'
   settings.hidden = true
-  root.replaceChildren(view, toasts, settings)
+  // F2 測試選單，同樣活在重繪之外
+  const debugBox = document.createElement('div')
+  debugBox.className = 'debug'
+  debugBox.hidden = true
+  root.replaceChildren(view, omen, toasts, settings, ...(deps.debug ? [debugBox] : []))
 
   const panels = createPanelState()
   let shownLogId = 0
@@ -209,6 +233,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
   let freshSummary = false
   let busy = false
   let campTimer: ReturnType<typeof setTimeout> | undefined
+  let aftershockTimer: ReturnType<typeof setTimeout> | undefined
 
   const delay = (ms: number) =>
     ms <= 0 ? Promise.resolve() : new Promise<void>((r) => setTimeout(r, ms))
@@ -283,8 +308,11 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       root.classList.toggle('mood--warm', run.endReason === 'surfaced')
       // 筆記本隨深度劣化（企劃書 15-3）
       root.dataset.decay = String(decayOf(run))
+      // 負荷預兆：危險越近，畫面邊緣越暗、字跡越抖（企劃書 16-3）
+      root.dataset.omen = String(omenLevel(run))
     } else {
       delete root.dataset.decay
+      delete root.dataset.omen
       view.innerHTML = renderTown({
         meta,
         selected,
@@ -302,6 +330,8 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       root.classList.remove('mood--ascent')
       root.classList.toggle('mood--warm', summary?.surfaced ?? false)
     }
+    // 測試選單的按鈕跟著目前的情況換
+    if (!debugBox.hidden) paintDebug()
   }
 
   /** 配樂隨局勢改變（企劃書 15-5b、16-4） */
@@ -356,6 +386,20 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
         )
       : current.log.slice(beforeLog).some((e) => e.tone === 'grim')
 
+    /*
+     * 發作（企劃書 16-3）：不用衝擊，用靜止。
+     * 畫面先停在發作前的那一刻 —— 褪色、按不動、音樂停住 —— 然後才把結果寫進筆記。
+     * 戰鬥裡的倒下另有表現（名字變灰），不走這條。
+     */
+    const seizure = grim && !battle
+    if (seizure) {
+      navigator.vibrate?.(30)
+      audio.hush(1400)
+      root.classList.add('app--seizure')
+      await delay(SEIZURE_MS * pace)
+      root.classList.remove('app--seizure')
+    }
+
     // 戰鬥在這一擊結束 —— 先停在戰鬥畫面，讓玩家看見最後一擊
     paint(finished ? {} : deltas, { battleFx, finalBattle: finished ? battle : undefined })
 
@@ -381,10 +425,12 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       })
     }
 
-    if (grim) {
+    if (grim && !seizure) {
       navigator.vibrate?.(30)
       audio.hush(1400)
     }
+    // 殘留：結果寫進筆記後，字跡還抖一陣子才停
+    if (seizure) aftershock()
 
     if (finished) {
       await delay(FINAL_BLOW_MS * pace)
@@ -392,10 +438,19 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     }
     syncAudio()
 
-    if (grim) await delay(Math.max(0, 1400 - (finished ? FINAL_BLOW_MS : 0)) * pace)
+    if (grim) {
+      const spent = (finished ? FINAL_BLOW_MS : 0) + (seizure ? SEIZURE_MS : 0)
+      await delay(Math.max(0, 1400 - spent) * pace)
+    }
 
     root.classList.remove('app--held')
     busy = false
+  }
+
+  function aftershock(): void {
+    clearTimeout(aftershockTimer)
+    root.classList.add('app--aftershock')
+    aftershockTimer = setTimeout(() => root.classList.remove('app--aftershock'), AFTERSHOCK_MS)
   }
 
   /** 一次行動的材質音效：翻頁、鉛筆、扣環、火堆（企劃書 16-8） */
@@ -466,6 +521,186 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     }
     el.textContent = String(from)
     requestAnimationFrame(tick)
+  }
+
+  // ─── 測試選單（F2）─────────────────────────────────────────
+
+  function paintDebug(): void {
+    const where = !run ? 'town' : run.over ? 'ended' : run.battle ? 'battle' : 'explore'
+    debugBox.innerHTML = debugMenu({ view: where, descending: run?.direction === 'down' })
+  }
+
+  function toggleDebug(): void {
+    if (!deps.debug) return
+    debugBox.hidden = !debugBox.hidden
+    if (!debugBox.hidden) paintDebug()
+  }
+
+  /** 下一步走到指定種類、指定深度的節點。走的是正常的行動流程，回饋效果照樣播 */
+  function debugStep(kind: NodeKind, depth: number): void {
+    void act((r) => {
+      const [node, rng] = makeNode(r.rngState, r.nextNodeId, depth, kind)
+      r.rngState = rng
+      r.nextNodeId += 1
+      r.choices = [node]
+      moveTo(r, node.id)
+    }, 0)
+  }
+
+/**
+   * 製造三級預兆：第一個會承受負荷的人陷入對應的危險，其他人補滿 —— 預兆只看最危險的那個人。
+   * 輕：3 步後耐受歸零；中：耐受已歸零、3 步內倒下；重：下一步就會倒下。
+   */
+  function debugOmen(r: RunState, level: 1 | 2 | 3): void {
+    if (r.direction === 'down') beginAscent(r)
+    const share = distributeBurden(r)
+    const bearers = r.party.filter((c) => c.status === 'alive' && (share[c.id] ?? 0) > 0)
+    const [target, ...others] = bearers
+    if (!target) return
+    for (const c of others) {
+      c.tolerance = c.maxTolerance
+      c.hp = c.maxHp
+    }
+
+    const per = share[target.id] ?? 1
+    if (level === 1) {
+      target.tolerance = per * 3
+      target.hp = target.maxHp
+    } else {
+      target.tolerance = 0
+      // 耐受歸零後每步扣 per × 2
+      target.hp = level === 3 ? per * 2 : Math.min(target.maxHp, per * 2 * 3)
+    }
+  }
+
+  /** 讓第一個會承受負荷的人下一步耐受歸零，走一步就發作 */
+  function debugSeizure(r: RunState): void {
+    if (r.direction === 'down') beginAscent(r)
+    const share = distributeBurden(r)
+    const target = r.party.find((c) => c.status === 'alive' && (share[c.id] ?? 0) > 0)
+    if (!target) return
+    target.tolerance = 1
+    target.hp = target.maxHp
+  }
+
+  function runDebug(action: string): void {
+    if (action === 'close') {
+      debugBox.hidden = true
+      return
+    }
+
+    // ── 奧斯城 ──
+    if (!run) {
+      if (action === 'funds') meta.funds += 5000
+      if (action === 'vault-relic') {
+        const def = RELIC_DEFS[Math.floor(Math.random() * RELIC_DEFS.length)]
+        if (def) {
+          meta.vault.push({
+            id: `debug-${Date.now()}`,
+            name: def.appearance,
+            weight: def.weight,
+            kind: 'relic',
+            value: def.value,
+            identified: false,
+            relicId: def.id,
+          })
+        }
+        meta.funds = Math.max(meta.funds, 5000)
+        tab = 'vault'
+      }
+      if (action === 'summary') {
+        const before = meta.funds
+        meta.funds += 1200
+        summary = {
+          surfaced: true,
+          earned: 1000,
+          refunded: 200,
+          questsDone: [],
+          questsFailed: [],
+          daysSpent: 3,
+          promoted: (nextRank(meta) ?? currentRank(meta)).name,
+          basesOpened: [],
+          relicsKept: ['未鑑定的遺物'],
+          aftermath: ['雷格的檢修費 −200（火葬砲 1 發）'],
+          survivors: availableMembers(meta)
+            .slice(0, PARTY_SIZE)
+            .map((c) => c.name),
+          dead: [],
+          lost: [],
+          buried: [],
+          newAfflictions: [],
+        }
+        tab = 'party'
+        freshSummary = true
+        paint()
+        rollFunds(before, meta.funds)
+        audio.sfx('coin', 1.4)
+        setTimeout(() => audio.sfx('stamp'), 1400 * pace)
+        return
+      }
+      paint()
+      persist()
+      return
+    }
+
+    const r = run
+    if (r.over) return
+
+    // ── 戰鬥 ──
+    if (r.battle) {
+      const foes = r.battle.combatants.filter((c) => c.side === 'enemy' && c.status === 'alive')
+      if (action === 'foe-charge' && foes[0]) foes[0].charging = 2.6
+      if (action === 'foe-weak') for (const c of foes) c.hp = 1
+      if (action === 'party-weak') {
+        for (const c of r.battle.combatants) {
+          if (c.side === 'party' && c.status === 'alive') c.hp = 1
+        }
+      }
+      paint()
+      return
+    }
+
+    // ── 探索 ──
+    const step = r.direction === 'down' ? 60 : -60
+    if (action === 'omen-1' || action === 'omen-2' || action === 'omen-3') {
+      debugOmen(r, Number(action.slice(5)) as 1 | 2 | 3)
+      paint()
+      persist()
+      return
+    }
+    if (action === 'seizure') {
+      debugSeizure(r)
+      paint()
+      const next = r.choices[0]
+      if (next) void act((s) => moveTo(s, next.id), 400)
+      return
+    }
+    if (action.startsWith('layer-')) {
+      const layer = LAYERS[Number(action.slice(6)) - 1]
+      if (layer && r.direction === 'down') debugStep('empty', layer.from + 60)
+      return
+    }
+    if (action === 'encounter') return debugStep('encounter', Math.max(0, r.depth + step))
+    if (action === 'relic') return debugStep('relic', Math.max(0, r.depth + step))
+    if (action === 'hurt') {
+      void act((s) => {
+        for (const c of s.party) {
+          if (c.status === 'alive') c.hp = Math.max(1, c.hp - Math.ceil(c.maxHp * 0.3))
+        }
+      }, 0)
+      return
+    }
+    if (action === 'restore') {
+      for (const c of r.party) {
+        if (c.status !== 'alive') continue
+        c.hp = c.maxHp
+        c.tolerance = c.maxTolerance
+      }
+      r.supplies = { food: 12, water: 24, rope: 4, medicine: 3 }
+      r.exhaustion = 0
+      paint()
+      persist()
+    }
   }
 
   // ─── 設定 ──────────────────────────────────────────────────
@@ -611,6 +846,8 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     audio.ensure()
     const d = el.dataset
 
+    if (d.debug) return runDebug(d.debug)
+
     if (d.settings) {
       setSettingsOpen(settings.hidden)
       return
@@ -661,7 +898,8 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     }
 
     if (d.rest) {
-      advanceDays(meta, 1)
+      const { paid } = restInTown(meta)
+      if (paid > 0) audio.sfx('coin', 0.5)
       paint()
       persist()
       return
@@ -841,6 +1079,10 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     })
     document.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape' && !settings.hidden) setSettingsOpen(false)
+      if (ev.key === 'F2' && deps.debug) {
+        ev.preventDefault()
+        toggleDebug()
+      }
     })
     root.addEventListener('input', onVolumeInput)
     root.addEventListener('change', onVolumeChange)

@@ -40,6 +40,10 @@ const audio: AudioPort = {
 
 const app = createApp(root, {
   audio,
+  // F2 測試選單：本機開發時開，線上網址要帶 ?debug 才開
+  debug:
+    ['localhost', '127.0.0.1'].includes(location.hostname) ||
+    new URLSearchParams(location.search).has('debug'),
   save: (data) => void saveGame(data),
   load: loadGame,
   clear: () => void clearGame(),

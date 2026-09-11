@@ -1,7 +1,48 @@
 import { describe, expect, it } from 'vitest'
-import { bearersOf, distributeBurden, forecast, tierFor } from '../curse'
-import { createRun } from '../run'
+import { bearersOf, distributeBurden, forecast, outlook, tierFor } from '../curse'
+import { beginAscent, createRun } from '../run'
 import type { RunState } from '../types'
+
+describe('撤離前景：什麼時候耐受歸零、什麼時候倒下', () => {
+  function atLayer4(tolerance: number, hp: number) {
+    const s = createRun('outlook')
+    s.depth = 8000
+    s.maxDepthReached = 8000
+    beginAscent(s)
+    const riko = s.party[0]!
+    riko.tolerance = tolerance
+    riko.hp = hp
+    return { s, riko }
+  }
+
+  it('耐受歸零不等於倒下 —— 之後每步改扣 HP', () => {
+    // 第四層每步 3：耐受 3 → 1 步歸零；之後每步 −6，HP 22 → 22、16、10、4、倒下
+    const { s, riko } = atLayer4(3, 22)
+    const o = outlook(s)[riko.id]!
+    expect(o.toZero).toBe(1)
+    expect(o.hpPerStep).toBe(6)
+    expect(o.down).toBe(5)
+  })
+
+  it('耐受已經歸零：toZero 是 0，倒下的步數照 HP 算', () => {
+    const { s, riko } = atLayer4(0, 12)
+    const o = outlook(s)[riko.id]!
+    expect(o.toZero).toBe(0)
+    expect(o.down).toBe(2)
+  })
+
+  it('歸零那一步只扣超出的部分', () => {
+    // 耐受 1、負荷 3：歸零那步超出 2 → −4
+    const { s, riko } = atLayer4(1, 4)
+    expect(outlook(s)[riko.id]!.down).toBe(1)
+  })
+
+  it('不承受負荷的人撐得住', () => {
+    const { s } = atLayer4(0, 1)
+    const reg = s.party.find((c) => c.id === 'reg')!
+    expect(outlook(s)[reg.id]).toMatchObject({ perStep: 0, down: Infinity })
+  })
+})
 
 function atDepth(seed: string, maxDepth: number): RunState {
   const s = createRun(seed)

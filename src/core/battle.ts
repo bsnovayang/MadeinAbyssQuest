@@ -1,3 +1,4 @@
+import { missChance } from './affliction'
 import { nextInt, pick } from './rng'
 import type { Character } from './types'
 import { enemiesForLayer, enemyById, type EnemyDef } from '../data/enemies'
@@ -26,6 +27,8 @@ export interface Combatant {
   uses: Record<string, number>
   /** 敵人蓄力中的重擊倍率 */
   charging: number
+  /** 出手落空的機率（失明之類的永久損傷） */
+  miss: number
   enemyId?: string
   status: 'alive' | 'down'
 }
@@ -84,6 +87,7 @@ function makeEnemy(def: EnemyDef, index: number, layer: number): Combatant {
     skills: [],
     uses: {},
     charging: 0,
+    miss: 0,
     enemyId: def.id,
     status: 'alive',
   }
@@ -123,6 +127,7 @@ export function createBattle(
         skills,
         uses: initialUses(skills),
         charging: 0,
+        miss: missChance(c),
         status: 'alive' as const,
       }
     })
@@ -254,6 +259,11 @@ export function useSkill(
 
   if (def.power) {
     for (const t of targets) {
+      // 看不見的人，出手有機率落空。治療不受影響 —— 那靠的是手，不是眼睛
+      if ((actor.miss ?? 0) > 0 && roll(b, 1, 100) <= actor.miss * 100) {
+        b.log.push(`${actor.name}的${def.name}落空了。看不見。`)
+        continue
+      }
       const variance = roll(b, 85, 115) / 100
       const dealt = Math.max(1, Math.round(actor.power * def.power * variance))
       b.log.push(`${actor.name}的${def.name} → ${t.name} −${dealt}`)
