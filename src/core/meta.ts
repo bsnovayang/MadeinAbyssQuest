@@ -1,4 +1,4 @@
-import { CURSE_AFFLICTIONS, effectiveStats } from './affliction'
+import { afflictionById, CURSE_AFFLICTIONS, effectiveStats } from './affliction'
 import { layerAt } from './depth'
 import { nextInt, pick } from './rng'
 import {
@@ -99,6 +99,41 @@ export function guildSubsidy(meta: MetaState): boolean {
   const floor = loadoutCost(MINIMUM_KIT)
   if (meta.funds >= floor) return false
   meta.funds = floor
+  return true
+}
+
+/**
+ * 城裡的非必要花費（雇人、鑑定、治療）花完之後，至少要留下最低配給的錢。
+ *
+ * 否則玩家會把錢花光、買不起補給，卡在出不了門的死路上 ——
+ * 破產保底只在回城與讀檔時才發動，城裡花光錢時沒有人會補。
+ * 買補給不受這條限制：這筆錢本來就是留給補給的。
+ */
+export function spendingFloor(): number {
+  return loadoutCost(MINIMUM_KIT)
+}
+
+export function canSpend(meta: MetaState, cost: number): boolean {
+  return meta.funds - cost >= spendingFloor()
+}
+
+/** 花了錢，補給單就調降到付得起的範圍 —— 玩家到補給頁看到的是買得起的數量 */
+function spend(meta: MetaState, cost: number): void {
+  meta.funds -= cost
+  clampLoadoutToFunds(meta)
+}
+
+/** 治療永久損傷。和雇人、鑑定一樣，要留下出發的錢 */
+export function cureAffliction(meta: MetaState, memberId: string, afflictionId: string): boolean {
+  const member = meta.roster.find((c) => c.id === memberId)
+  const def = afflictionById(afflictionId)
+  if (!member || !def || def.cureCost <= 0 || !canSpend(meta, def.cureCost)) return false
+
+  const idx = member.afflictions.indexOf(def.id)
+  if (idx < 0) return false
+
+  member.afflictions.splice(idx, 1)
+  spend(meta, def.cureCost)
   return true
 }
 
@@ -221,9 +256,9 @@ export function identifyRelic(meta: MetaState, id: string): boolean {
   if (!item || item.identified) return false
 
   const cost = identifyCost(item)
-  if (meta.funds < cost) return false
+  if (!canSpend(meta, cost)) return false
 
-  meta.funds -= cost
+  spend(meta, cost)
   item.identified = true
   const def = item.relicId ? relicById(item.relicId) : undefined
   if (def) item.name = def.name
@@ -734,9 +769,9 @@ export function hire(meta: MetaState, applicantId: string): Character | null {
   if (meta.roster.filter((c) => c.status === 'alive').length >= rosterCap(meta)) return null
 
   const cost = hireCost(candidate)
-  if (meta.funds < cost) return null
+  if (!canSpend(meta, cost)) return null
 
-  meta.funds -= cost
+  spend(meta, cost)
   meta.applicants.splice(idx, 1)
   meta.roster.push(candidate)
   refreshApplicants(meta)

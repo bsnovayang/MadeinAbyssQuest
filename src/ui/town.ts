@@ -5,6 +5,7 @@ import {
   availableMembers,
   bondBetween,
   bondBonus,
+  canSpend,
   currentRank,
   departCost,
   departFee,
@@ -17,6 +18,7 @@ import {
   PARTY_SIZE,
   rosterCap,
   sellValue,
+  spendingFloor,
   SUPPLY_PRICE,
   takeDownWeight,
   unlockedBases,
@@ -29,7 +31,7 @@ import { relicById } from '../data/relics'
 import { traitEffectText, traitsOf, traitTone, type TraitDef } from '../core/traits'
 import type { Character, SupplyKey } from '../core/types'
 import { suppliesWeight } from '../core/weight'
-import { soundToggles } from './controls'
+import { settingsButton } from './controls'
 
 function esc(s: string): string {
   return s.replace(
@@ -86,6 +88,17 @@ function summaryPanel(summary: RunSummary | null, fresh: boolean): string {
       ${lines.map((l, i) => `<p class="report__line" style="--i:${i}">${esc(l)}</p>`).join('')}
       ${stamp}
     </section>`
+}
+
+/**
+ * 城裡的花費為什麼按不下去。
+ * 錢夠付、但付了就買不起最低補給時，要講清楚 —— 否則玩家只會覺得「明明有錢」。
+ */
+function spendWhy(meta: MetaState, cost: number, className: string): string {
+  if (canSpend(meta, cost)) return ''
+  const why =
+    meta.funds < cost ? '資金不足' : `付了就買不起最低補給（要留 ${spendingFloor()} 出發）`
+  return `<span class="${className}">${why}</span>`
 }
 
 function traitClass(t: TraitDef): string {
@@ -174,8 +187,8 @@ function memberDetail(c: Character, meta: MetaState): string {
                    const cure =
                      def.cureCost > 0
                        ? `<button class="ward" data-cure="${esc(c.id)}:${esc(id)}" type="button" ${
-                           meta.funds >= def.cureCost ? '' : 'disabled'
-                         }>治療 ${def.cureCost}</button>`
+                           canSpend(meta, def.cureCost) ? '' : 'disabled'
+                         }>治療 ${def.cureCost}</button>${spendWhy(meta, def.cureCost, 'detail__base')}`
                        : '<span class="detail__base">無法治療</span>'
                    return `<li><span class="trait trait--bad">${esc(def.name)}${n > 1 ? `×${n}` : ''}</span>${esc(def.desc)} ${cure}</li>`
                  })
@@ -383,7 +396,7 @@ function orphanage(meta: MetaState): string {
   const cards = meta.applicants
     .map((c) => {
       const cost = hireCost(c)
-      const afford = meta.funds >= cost
+      const afford = canSpend(meta, cost)
       return `
         <div class="applicant">
           <div class="applicant__row">
@@ -395,7 +408,7 @@ function orphanage(meta: MetaState): string {
           ${traitList(c)}
           <button class="action" data-hire="${esc(c.id)}" type="button" ${afford ? '' : 'disabled'}>
             帶他走
-            ${afford ? '' : '<span class="action__why">資金不足</span>'}
+            ${spendWhy(meta, cost, 'action__why')}
           </button>
         </div>`
     })
@@ -474,8 +487,8 @@ function vault(meta: MetaState, revealed: string | null): string {
               i.identified
                 ? ''
                 : `<button class="ward" data-identify="${esc(i.id)}" type="button" ${
-                    meta.funds >= cost ? '' : 'disabled'
-                  }>鑑定 ${cost}</button>`
+                    canSpend(meta, cost) ? '' : 'disabled'
+                  }>鑑定 ${cost}</button>${spendWhy(meta, cost, 'detail__base')}`
             }
             <button class="ward ${taking ? 'ward--on' : ''}" data-take-down="${esc(i.id)}" type="button">
               ${taking ? '帶下去' : '留在城裡'}
@@ -608,15 +621,20 @@ function records(meta: MetaState): string {
     }`
 }
 
-/** 準備一趟探索是有順序的：先決定誰去，才決定帶多少 */
-function tabBar(tab: TownTab, meta: MetaState, selected: string[]): string {
-  const tabs: { id: TownTab; label: string; note: string }[] = [
-    { id: 'quests', label: '① 委託', note: `${activeQuests(meta).length}/${MAX_ACTIVE_QUESTS}` },
-    { id: 'party', label: '② 隊伍', note: `${selected.length}/${PARTY_SIZE}` },
-    { id: 'supply', label: '③ 補給', note: `${loadoutCost(meta.loadout)}` },
-    { id: 'orphanage', label: '孤兒院', note: `${meta.applicants.length}` },
-    { id: 'vault', label: '遺物', note: `${meta.vault.length}` },
-    { id: 'records', label: '紀錄', note: `${meta.graveyard.length}` },
+/**
+ * 準備一趟探索是有順序的：先決定誰去，才決定帶多少。
+ *
+ * 分頁上不放數字 —— 點進去那一頁就有詳細數字，
+ * 省下的寬度讓小手機也能一次看到全部六個分頁。
+ */
+function tabBar(tab: TownTab): string {
+  const tabs: { id: TownTab; label: string }[] = [
+    { id: 'quests', label: '① 委託' },
+    { id: 'party', label: '② 隊伍' },
+    { id: 'supply', label: '③ 補給' },
+    { id: 'orphanage', label: '孤兒院' },
+    { id: 'vault', label: '遺物' },
+    { id: 'records', label: '紀錄' },
   ]
 
   return `
@@ -624,9 +642,7 @@ function tabBar(tab: TownTab, meta: MetaState, selected: string[]): string {
       ${tabs
         .map(
           (t) => `
-            <button class="tab ${t.id === tab ? 'tab--on' : ''}" data-tab="${t.id}" type="button">
-              ${t.label}<span class="tab__note">${esc(t.note)}</span>
-            </button>`,
+            <button class="tab ${t.id === tab ? 'tab--on' : ''}" data-tab="${t.id}" type="button">${t.label}</button>`,
         )
         .join('')}
     </nav>`
@@ -636,10 +652,8 @@ export interface TownView {
   meta: MetaState
   selected: string[]
   summary: RunSummary | null
-  /** 音樂關著 */
-  muted: boolean
-  /** 音效關著 */
-  sfxMuted?: boolean
+  /** 設定選單開著（齒輪高亮） */
+  settingsOpen?: boolean
   wiping?: boolean
   tab?: TownTab
   /** 目前展開詳細資料的隊員 */
@@ -651,7 +665,7 @@ export interface TownView {
 }
 
 export function renderTown(view: TownView): string {
-  const { meta, selected, summary, muted } = view
+  const { meta, selected, summary } = view
   const wiping = view.wiping ?? false
   const tab = view.tab ?? 'party'
   const expanded = view.expanded ?? null
@@ -729,11 +743,11 @@ export function renderTown(view: TownView): string {
       <div class="depth-bar__top">
         <span class="depth-bar__depth">奧斯城</span>
         <span class="depth-bar__layer">
-          ${esc(currentRank(meta).name)}　·　資金 <span data-funds>${meta.funds}</span>　·　第 ${meta.day} 日
-          ${soundToggles(muted, view.sfxMuted ?? false)}
+          <span class="depth-bar__info">${esc(currentRank(meta).name)}<span class="dot">·</span>資金 <span data-funds>${meta.funds}</span><span class="dot">·</span>第 ${meta.day} 日</span>
+          ${settingsButton(view.settingsOpen ?? false)}
         </span>
       </div>
-      ${tabBar(tab, meta, selected)}
+      ${tabBar(tab)}
     </div>
 
     <div class="town-page">${pages[tab]}</div>`

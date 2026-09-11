@@ -3,7 +3,6 @@ import { AdaptiveTrack, MusicBus } from './music'
 import type { SoundSource } from './sampler'
 import { TRACKS, type TrackId } from './tracks'
 
-const VOLUME = 0.7
 /** 一般換場景的淡入淡出 */
 const FADE = 2.5
 /** 打起來要快，不能等音樂慢慢進來 */
@@ -24,14 +23,21 @@ export class MusicDirector {
   private scene: TrackId | null = null
   private warmth = 1
   private muted = false
+  /** 玩家在設定裡調的音量，0～1 */
+  private level = 0.7
 
   constructor(
     private readonly ctx: AudioContext,
     private readonly source: SoundSource = 'bundled',
   ) {
     this.bus = new MusicBus(ctx)
-    this.bus.setVolume(VOLUME)
+    this.bus.setVolume(this.level)
     this.bus.setReverb(0.35)
+  }
+
+  setLevel(level: number): void {
+    this.level = Math.max(0, Math.min(1, level))
+    if (!this.muted) this.bus.setVolume(this.level)
   }
 
   setScene(id: TrackId): void {
@@ -63,7 +69,7 @@ export class MusicDirector {
   setMuted(muted: boolean): void {
     if (muted === this.muted) return
     this.muted = muted
-    this.bus.setVolume(muted ? 0 : VOLUME)
+    this.bus.setVolume(muted ? 0 : this.level)
   }
 
   private async enter(id: TrackId): Promise<void> {

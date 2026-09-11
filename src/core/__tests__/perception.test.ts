@@ -6,7 +6,6 @@ import { render } from '../../ui/render'
 
 const ui = {
   deltas: {},
-  muted: true,
   panels: { explicit: { party: true, notes: true } },
 }
 

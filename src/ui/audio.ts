@@ -5,31 +5,48 @@ import type { TrackId } from '../audio/tracks'
 /**
  * 遊戲與聲音之間的轉接（企劃書 15-5b、16-8）。
  *
- * 音樂與音效是兩個開關：
- * - 音樂預設關閉，玩家自己按開。第一次打開時才下載音色
- * - 音效預設打開。又短又輕、不需要下載，沒有它手感會差很多
+ * 音樂與音效是兩個開關，預設都打開。
+ * 瀏覽器要使用者互動過一次才允許播放，所以第一次點畫面（任何地方）時才建立音訊、下載音色。
  *
- * 兩個設定記在這台裝置的瀏覽器裡。靜音期間照樣記住場景與暖度，打開的瞬間直接接上目前的局勢。
+ * 兩個設定記在這台裝置的瀏覽器裡；玩家關掉過就保持關閉。
+ * 靜音期間照樣記住場景與暖度，打開的瞬間直接接上目前的局勢。
  */
 
 const PREFS_KEY = 'abyss-audio'
+const DEFAULT_VOLUME = 0.7
 
-function loadPrefs(): { music: boolean; sfx: boolean } {
+interface Prefs {
+  music: boolean
+  sfx: boolean
+  musicVolume: number
+  sfxVolume: number
+}
+
+const clamp01 = (v: unknown, fallback: number) =>
+  typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : fallback
+
+function loadPrefs(): Prefs {
   try {
     const raw = localStorage.getItem(PREFS_KEY)
     if (raw) {
-      const saved = JSON.parse(raw) as { music?: unknown; sfx?: unknown }
-      return { music: saved.music === true, sfx: saved.sfx !== false }
+      const saved = JSON.parse(raw) as Partial<Record<keyof Prefs, unknown>>
+      return {
+        music: saved.music !== false,
+        sfx: saved.sfx !== false,
+        musicVolume: clamp01(saved.musicVolume, DEFAULT_VOLUME),
+        sfxVolume: clamp01(saved.sfxVolume, DEFAULT_VOLUME),
+      }
     }
   } catch {
     /* 私密模式或封鎖儲存空間時，用預設值 */
   }
-  return { music: false, sfx: true }
+  return { music: true, sfx: true, musicVolume: DEFAULT_VOLUME, sfxVolume: DEFAULT_VOLUME }
 }
 
 function savePrefs(): void {
   try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify({ music: !musicMuted, sfx: !sfxMuted }))
+    const prefs: Prefs = { music: !musicMuted, sfx: !sfxMuted, musicVolume, sfxVolume }
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs))
   } catch {
     /* 記不住也沒關係 */
   }
@@ -38,6 +55,8 @@ function savePrefs(): void {
 const prefs = loadPrefs()
 let musicMuted = !prefs.music
 let sfxMuted = !prefs.sfx
+let musicVolume = prefs.musicVolume
+let sfxVolume = prefs.sfxVolume
 
 let ctx: AudioContext | null = null
 let director: MusicDirector | null = null
@@ -62,9 +81,13 @@ export function ensureAudio(): void {
       }
       ctx = new Ctor()
     }
-    bank ??= new SfxBank(ctx)
+    if (!bank) {
+      bank = new SfxBank(ctx)
+      bank.setVolume(sfxVolume)
+    }
     if (!musicMuted && !director) {
       director = new MusicDirector(ctx)
+      director.setLevel(musicVolume)
       director.setWarmth(warmth)
       director.setScene(scene)
     }
@@ -133,6 +156,28 @@ export function toggleSfx(): boolean {
   if (sfxMuted) suspendIfSilent()
   else ensureAudio()
   return sfxMuted
+}
+
+/** 0～1 */
+export function setMusicVolume(level: number): void {
+  musicVolume = clamp01(level, musicVolume)
+  savePrefs()
+  director?.setLevel(musicVolume)
+}
+
+/** 0～1 */
+export function setSfxVolume(level: number): void {
+  sfxVolume = clamp01(level, sfxVolume)
+  savePrefs()
+  bank?.setVolume(sfxVolume)
+}
+
+export function getMusicVolume(): number {
+  return musicVolume
+}
+
+export function getSfxVolume(): number {
+  return sfxVolume
 }
 
 export function isMusicMuted(): boolean {

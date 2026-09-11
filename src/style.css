@@ -67,20 +67,74 @@ body {
 
 .depth-bar__top {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
 }
 
+/* 深度或地名是整排最重要的字，永遠不斷行 */
 .depth-bar__depth {
+  flex: none;
+  white-space: nowrap;
   font-size: 1.9rem;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
 
 .depth-bar__layer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  min-width: 0;
   font-size: 0.9rem;
   color: var(--ink-soft);
+}
+
+.depth-bar__info {
+  text-align: right;
+}
+
+.dot {
+  margin: 0 0.35em;
+  color: var(--ink-faint);
+}
+
+/* ── 小手機：375px 寬也要和大手機一樣排成一行 ─────────────── */
+
+@media (max-width: 400px) {
+  #app {
+    padding-left: 0.8rem;
+    padding-right: 0.8rem;
+  }
+
+  .depth-bar {
+    margin-left: -0.8rem;
+    margin-right: -0.8rem;
+    padding-left: 0.8rem;
+    padding-right: 0.8rem;
+  }
+
+  .depth-bar__top {
+    gap: 0.6rem;
+  }
+
+  .depth-bar__depth {
+    font-size: 1.55rem;
+  }
+
+  .depth-bar__layer {
+    font-size: 0.8rem;
+  }
+
+  .dot {
+    margin: 0 0.2em;
+  }
+
+  .tab {
+    font-size: 0.8rem;
+    padding: 0.35rem 0.3rem 0.4rem;
+  }
 }
 
 .depth-bar__track {
@@ -743,12 +797,103 @@ h2 {
   white-space: nowrap;
 }
 
-/* 音樂與音效兩個開關。關掉的那個被劃掉 */
-.sound {
+/* ── 設定：標題列的齒輪，點開才看到聲音的開關與音量 ────────── */
+
+.gear {
+  flex: none;
   display: inline-flex;
-  gap: 0.2rem;
-  margin-left: 0.35rem;
-  vertical-align: middle;
+  padding: 0.25rem;
+  line-height: 0;
+  color: var(--ink-faint);
+  background: none;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.gear:hover,
+.gear--on {
+  color: var(--ink);
+  background: rgba(63, 50, 38, 0.08);
+}
+
+.settings {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.settings__card {
+  position: absolute;
+  top: 3.4rem;
+  right: max(0.8rem, calc((100vw - 1100px) / 2 + 0.8rem));
+  width: min(21rem, calc(100vw - 1.6rem));
+  padding: 0.7rem 0.9rem 0.5rem;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+  pointer-events: auto;
+}
+
+.settings__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+
+.settings__title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--ink-faint);
+}
+
+.settings__close {
+  font-family: inherit;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.settings__row {
+  display: grid;
+  grid-template-columns: 2.4rem 1fr 1.8rem auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0;
+  border-top: 1px dashed var(--paper-edge);
+}
+
+.settings__label {
+  font-weight: 700;
+}
+
+.settings__slider {
+  width: 100%;
+  accent-color: var(--ink-soft);
+}
+
+.settings__value {
+  font-size: 0.8rem;
+  text-align: right;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings__row--off .settings__label,
+.settings__row--off .settings__value {
+  color: var(--ink-faint);
+}
+
+.settings__note {
+  margin: 0.3rem 0 0;
+  font-size: 0.74rem;
+  color: var(--ink-faint);
 }
 
 .mute {
@@ -1351,12 +1496,10 @@ h2 {
   border-bottom-color: var(--ink);
 }
 
-.tab__note {
-  margin-left: 0.35rem;
-  font-size: 0.72rem;
-  font-weight: 400;
-  color: var(--ink-faint);
-  font-variant-numeric: tabular-nums;
+/* 真的放不下時才由程式加上：右端淡出，提示還能往右滑 */
+.tabs--more {
+  -webkit-mask-image: linear-gradient(to right, #000 86%, transparent);
+  mask-image: linear-gradient(to right, #000 86%, transparent);
 }
 
 .town-page {

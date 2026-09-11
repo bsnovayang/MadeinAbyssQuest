@@ -1,4 +1,3 @@
-import { afflictionById } from '../core/affliction'
 import {
   abandonQuest,
   activeQuests,
@@ -6,6 +5,7 @@ import {
   advanceDays,
   clampLoadoutToFunds,
   concludeRun,
+  cureAffliction,
   departCost,
   createMeta,
   deployParty,
@@ -44,6 +44,7 @@ import { layerAt } from '../core/depth'
 import { describeProgress } from '../core/quests'
 import type { RunState, SupplyKey } from '../core/types'
 import { diffBattle, HEAVY_SHARE, snapshotBattle, type BattleFx } from './battle'
+import { settingsPanel } from './controls'
 import { createPanelState, togglePanel, type PanelId } from './panels'
 import { decayOf, render, type HpDeltas } from './render'
 import { clearToasts, showToasts, type ToastLine } from './toast'
@@ -75,6 +76,12 @@ export interface AudioPort {
   /** 回傳切換後是否關著 */
   toggleSfx(): boolean
   isSfxMuted(): boolean
+  /** 0～1 */
+  setMusicVolume(level: number): void
+  /** 0～1 */
+  setSfxVolume(level: number): void
+  musicVolume(): number
+  sfxVolume(): number
 }
 
 export const silentAudio: AudioPort = {
@@ -88,6 +95,10 @@ export const silentAudio: AudioPort = {
   isMusicMuted: () => false,
   toggleSfx: () => false,
   isSfxMuted: () => false,
+  setMusicVolume: () => {},
+  setSfxVolume: () => {},
+  musicVolume: () => 0.7,
+  sfxVolume: () => 0.7,
 }
 
 export interface AppDeps {
@@ -139,6 +150,20 @@ function shielded(audio: AudioPort): AudioPort {
     isMusicMuted: flag(() => audio.isMusicMuted()),
     toggleSfx: flag(() => audio.toggleSfx()),
     isSfxMuted: flag(() => audio.isSfxMuted()),
+    setMusicVolume: wrap((level: number) => audio.setMusicVolume(level)),
+    setSfxVolume: wrap((level: number) => audio.setSfxVolume(level)),
+    musicVolume: level(() => audio.musicVolume()),
+    sfxVolume: level(() => audio.sfxVolume()),
+  }
+}
+
+function level(fn: () => number): () => number {
+  return () => {
+    try {
+      return fn()
+    } catch {
+      return 0.7
+    }
   }
 }
 
@@ -160,7 +185,11 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
   const view = document.createElement('div')
   const toasts = document.createElement('div')
   toasts.className = 'toasts'
-  root.replaceChildren(view, toasts)
+  // 設定選單也活在重繪之外，拖曳音量滑桿時才不會被重繪打斷
+  const settings = document.createElement('div')
+  settings.className = 'settings'
+  settings.hidden = true
+  root.replaceChildren(view, toasts, settings)
 
   const panels = createPanelState()
   let shownLogId = 0
@@ -244,8 +273,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       if (!run.battle) battleTarget = null
       view.innerHTML = render(run, {
         deltas,
-        muted: audio.isMusicMuted(),
-        sfxMuted: audio.isSfxMuted(),
+        settingsOpen: !settings.hidden,
         quests,
         target: battleTarget,
         panels,
@@ -261,8 +289,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
         meta,
         selected,
         summary,
-        muted: audio.isMusicMuted(),
-        sfxMuted: audio.isSfxMuted(),
+        settingsOpen: !settings.hidden,
         wiping,
         tab,
         expanded,
@@ -271,6 +298,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       })
       revealed = null
       freshSummary = false
+      fitTabs()
       root.classList.remove('mood--ascent')
       root.classList.toggle('mood--warm', summary?.surfaced ?? false)
     }
@@ -409,6 +437,21 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     setTimeout(() => el.remove(), 3200)
   }
 
+  /**
+   * 分頁的保險：更窄的手機還是放不下時，右端淡出提示還能滑，
+   * 並把目前的分頁捲進畫面 —— 不會切到一個看不見的分頁。
+   */
+  function fitTabs(): void {
+    const tabs = view.querySelector<HTMLElement>('.tabs')
+    if (!tabs) return
+    tabs.classList.toggle('tabs--more', tabs.scrollWidth > tabs.clientWidth + 1)
+
+    const on = tabs.querySelector<HTMLElement>('.tab--on')
+    if (!on) return
+    const left = on.offsetLeft - tabs.offsetLeft
+    if (left + on.offsetWidth > tabs.clientWidth) tabs.scrollLeft = left - 16
+  }
+
   /** 資金數字滾動到新的值。系統設定減少動態效果時直接跳到結果 */
   function rollFunds(from: number, to: number): void {
     const el = view.querySelector<HTMLElement>('[data-funds]')
@@ -423,6 +466,43 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     }
     el.textContent = String(from)
     requestAnimationFrame(tick)
+  }
+
+  // ─── 設定 ──────────────────────────────────────────────────
+
+  function paintSettings(): void {
+    settings.innerHTML = settingsPanel({
+      musicMuted: audio.isMusicMuted(),
+      sfxMuted: audio.isSfxMuted(),
+      musicVolume: audio.musicVolume(),
+      sfxVolume: audio.sfxVolume(),
+    })
+  }
+
+  function setSettingsOpen(open: boolean): void {
+    settings.hidden = !open
+    if (open) paintSettings()
+    paint()
+  }
+
+  /** 拖曳音量滑桿：即時生效，只改數字，不重繪 */
+  function onVolumeInput(ev: Event): void {
+    const input = ev.target as HTMLInputElement
+    const kind = input.dataset?.volume
+    if (kind !== 'music' && kind !== 'sfx') return
+
+    const volume = Number(input.value) / 100
+    if (kind === 'music') audio.setMusicVolume(volume)
+    else audio.setSfxVolume(volume)
+
+    const label = settings.querySelector(`[data-volume-value="${kind}"]`)
+    if (label) label.textContent = input.value
+  }
+
+  /** 放開音效滑桿時試播一聲，讓玩家聽得到調成多大 */
+  function onVolumeChange(ev: Event): void {
+    const input = ev.target as HTMLInputElement
+    if (input.dataset?.volume === 'sfx') audio.sfx('pencil')
   }
 
   function flashCamp(): void {
@@ -484,8 +564,15 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
   }
 
   function togglePick(id: string): void {
-    if (selected.includes(id)) selected = selected.filter((x) => x !== id)
-    else if (selected.length < PARTY_SIZE) selected = [...selected, id]
+    if (selected.includes(id)) {
+      selected = selected.filter((x) => x !== id)
+      // 把名字從名單上劃掉
+      audio.sfx('strike', 0.6)
+    } else if (selected.length < PARTY_SIZE) {
+      selected = [...selected, id]
+      // 在名冊上打個勾
+      audio.sfx('pencil')
+    }
     paint()
   }
 
@@ -508,15 +595,8 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
 
   function cure(payload: string): void {
     const [memberId, afflictionId] = payload.split(':')
-    const member = meta.roster.find((c) => c.id === memberId)
-    const def = afflictionId ? afflictionById(afflictionId) : undefined
-    if (!member || !def || def.cureCost <= 0 || meta.funds < def.cureCost) return
-
-    const idx = member.afflictions.indexOf(def.id)
-    if (idx < 0) return
-
-    member.afflictions.splice(idx, 1)
-    meta.funds -= def.cureCost
+    if (!memberId || !afflictionId || !cureAffliction(meta, memberId, afflictionId)) return
+    audio.sfx('coin', 0.6)
     paint()
     persist()
   }
@@ -531,6 +611,16 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     audio.ensure()
     const d = el.dataset
 
+    if (d.settings) {
+      setSettingsOpen(settings.hidden)
+      return
+    }
+
+    if (d.settingsClose) {
+      setSettingsOpen(false)
+      return
+    }
+
     if (d.mute) {
       if (d.mute === 'sfx') {
         // 打開音效時出個聲，讓玩家知道真的打開了
@@ -538,7 +628,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       } else {
         audio.toggleMusic()
       }
-      paint()
+      paintSettings()
       return
     }
 
@@ -551,14 +641,20 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     }
 
     if (d.take) {
+      const before = activeQuests(meta).length
       takeQuest(meta, d.take)
+      // 委託單蓋上受理的章
+      if (activeQuests(meta).length > before) audio.sfx('stamp', 0.6)
       paint()
       persist()
       return
     }
 
     if (d.abandon) {
+      const before = activeQuests(meta).length
       abandonQuest(meta, d.abandon)
+      // 把委託劃掉
+      if (activeQuests(meta).length < before) audio.sfx('strike', 0.7)
       paint()
       persist()
       return
@@ -730,6 +826,24 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     }
     if (!run) replenish(meta)
     root.addEventListener('click', handleClick)
+
+    // 瀏覽器要使用者互動過一次才允許播放聲音 —— 點畫面任何地方、按任何鍵都算，不必剛好點到按鈕
+    const unlockAudio = () => audio.ensure()
+    document.addEventListener('pointerup', unlockAudio)
+    document.addEventListener('keydown', unlockAudio)
+
+    // 點設定選單以外的地方、或按 Esc，就收起來
+    root.addEventListener('click', (ev) => {
+      if (settings.hidden) return
+      const target = ev.target as HTMLElement | null
+      if (target?.closest('.settings__card') || target?.closest('[data-settings]')) return
+      setSettingsOpen(false)
+    })
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && !settings.hidden) setSettingsOpen(false)
+    })
+    root.addEventListener('input', onVolumeInput)
+    root.addEventListener('change', onVolumeChange)
     paint()
     syncAudio()
   }

@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { ASCENT_WARMTH, createApp, type App, type AudioPort, type MusicScene } from '../app'
 import { isMusicMuted, isSfxMuted } from '../audio'
-import { createMeta, deployParty } from '../../core/meta'
+import { createMeta, deployParty, hireCost, spendingFloor } from '../../core/meta'
 import { createRun } from '../../core/run'
 
 let root: HTMLDivElement
@@ -708,8 +708,8 @@ describe('停用的按鈕都要說得出原因', () => {
 })
 
 describe('音效', () => {
-  it('音樂預設關閉 —— 玩家自己決定要不要開', () => {
-    expect(isMusicMuted()).toBe(true)
+  it('音樂預設打開，第一次互動時才開始播', () => {
+    expect(isMusicMuted()).toBe(false)
   })
 
   it('音效預設打開 —— 又短又輕，沒有它手感會差很多', () => {
@@ -740,6 +740,10 @@ describe('配樂', () => {
       isMusicMuted: () => true,
       toggleSfx: () => true,
       isSfxMuted: () => true,
+      setMusicVolume: () => {},
+      setSfxVolume: () => {},
+      musicVolume: () => 0.7,
+      sfxVolume: () => 0.7,
     }
     root = document.createElement('div')
     document.body.replaceChildren(root)
@@ -801,25 +805,47 @@ describe('配樂', () => {
   })
 })
 
+describe('城裡的花費不能把出發的錢花掉', () => {
+  it('付了就買不起最低補給時，孤兒院的按鈕停用並說明原因', () => {
+    goto('orphanage')
+    const meta = app.snapshot().meta
+    const target = meta.applicants[0]!
+    meta.funds = hireCost(target) + spendingFloor() - 1
+    goto('orphanage')
+
+    const button = root.querySelector(`[data-hire="${target.id}"]`)!
+    expect(button.hasAttribute('disabled')).toBe(true)
+    expect(button.textContent).toContain('最低補給')
+  })
+})
+
 /** 企劃書 16-8：材質音效與揭曉時刻 */
 describe('音效與揭曉時刻', () => {
   let sounds: string[]
   let toggled: string[]
+  let ensured: number
+  let volumes: [string, number][]
 
   beforeEach(async () => {
     sounds = []
     toggled = []
+    ensured = 0
+    volumes = []
     const port: AudioPort = {
-      ensure: () => {},
+      ensure: () => ensured++,
       setScene: () => {},
       setWarmth: () => {},
       swell: () => {},
       hush: () => {},
       sfx: (name) => sounds.push(name),
-      toggleMusic: () => (toggled.push('music'), true),
-      isMusicMuted: () => true,
+      toggleMusic: () => (toggled.push('music'), false),
+      isMusicMuted: () => false,
       toggleSfx: () => (toggled.push('sfx'), false),
       isSfxMuted: () => false,
+      setMusicVolume: (v) => volumes.push(['music', v]),
+      setSfxVolume: (v) => volumes.push(['sfx', v]),
+      musicVolume: () => 0.7,
+      sfxVolume: () => 0.7,
     }
     root = document.createElement('div')
     document.body.replaceChildren(root)
@@ -827,10 +853,72 @@ describe('音效與揭曉時刻', () => {
     await app.start()
   })
 
-  it('音樂與音效是分開的兩個開關', () => {
+  it('點畫面任何地方就解鎖聲音，不必剛好點到按鈕', () => {
+    const before = ensured
+    root.dispatchEvent(new window.MouseEvent('pointerup', { bubbles: true }))
+    expect(ensured).toBeGreaterThan(before)
+  })
+
+  const settingsHidden = () => root.querySelector<HTMLElement>('.settings')!.hidden
+
+  it('聲音設定收在齒輪裡：點開才看到音樂與音效的開關', () => {
+    expect(settingsHidden()).toBe(true)
+    click('[data-settings]')
+    expect(settingsHidden()).toBe(false)
+    expect(root.querySelector('[data-settings]')?.getAttribute('aria-expanded')).toBe('true')
+
     click('[data-mute="music"]')
     click('[data-mute="sfx"]')
     expect(toggled).toEqual(['music', 'sfx'])
+    // 點選單裡的東西不會把選單收起來
+    expect(settingsHidden()).toBe(false)
+  })
+
+  it('音樂與音效的音量分開調，拖曳時數字跟著變', () => {
+    click('[data-settings]')
+    const slide = (kind: string, value: string) => {
+      const input = root.querySelector<HTMLInputElement>(`[data-volume="${kind}"]`)!
+      input.value = value
+      input.dispatchEvent(new window.Event('input', { bubbles: true }))
+    }
+    slide('music', '30')
+    slide('sfx', '90')
+
+    expect(volumes).toEqual([
+      ['music', 0.3],
+      ['sfx', 0.9],
+    ])
+    expect(root.querySelector('[data-volume-value="music"]')?.textContent).toBe('30')
+  })
+
+  it('點選單以外的地方、或按關閉，就收起來', () => {
+    click('[data-settings]')
+    click('.tab[data-tab="quests"]')
+    expect(settingsHidden()).toBe(true)
+
+    click('[data-settings]')
+    click('[data-settings-close]')
+    expect(settingsHidden()).toBe(true)
+  })
+
+  it('編進隊伍是打勾，移出隊伍是劃掉', () => {
+    goto('party')
+    sounds.length = 0
+    click('[data-pick="riko"]')
+    expect(sounds).toEqual(['pencil'])
+
+    click('[data-pick="riko"]')
+    expect(sounds).toEqual(['pencil', 'strike'])
+  })
+
+  it('承接委託是蓋章，放棄委託是劃掉', () => {
+    goto('quests')
+    sounds.length = 0
+    click('[data-take]')
+    expect(sounds).toContain('stamp')
+
+    click('[data-abandon]')
+    expect(sounds).toContain('strike')
   })
 
   it('往前走一步是翻頁聲', async () => {
@@ -980,6 +1068,10 @@ describe('韌性', () => {
         isMusicMuted: () => false,
         toggleSfx: boom,
         isSfxMuted: () => false,
+        setMusicVolume: boom,
+        setSfxVolume: boom,
+        musicVolume: () => 0.7,
+        sfxVolume: () => 0.7,
       },
     })
     await a2.start()

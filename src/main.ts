@@ -2,11 +2,15 @@ import './style.css'
 import { createApp, type AudioPort } from './ui/app'
 import {
   ensureAudio,
+  getMusicVolume,
+  getSfxVolume,
   hush,
   isMusicMuted,
   isSfxMuted,
   playSfx,
+  setMusicVolume,
   setScene,
+  setSfxVolume,
   setWarmth,
   swell,
   toggleMusic,
@@ -28,6 +32,10 @@ const audio: AudioPort = {
   isMusicMuted,
   toggleSfx,
   isSfxMuted,
+  setMusicVolume,
+  setSfxVolume,
+  musicVolume: getMusicVolume,
+  sfxVolume: getSfxVolume,
 }
 
 const app = createApp(root, {

@@ -19,7 +19,7 @@ import { runBehaviors } from '../core/traits'
 import type { NodeKind, RunState, Supplies } from '../core/types'
 import { relicById } from '../data/relics'
 import { renderBattle, type BattleFx } from './battle'
-import { soundToggles } from './controls'
+import { settingsButton } from './controls'
 import {
   createPanelState,
   isPanelOpen,
@@ -31,10 +31,8 @@ export type HpDeltas = Record<string, number>
 
 export interface UiState {
   deltas: HpDeltas
-  /** 音樂關著 */
-  muted: boolean
-  /** 音效關著 */
-  sfxMuted?: boolean
+  /** 設定選單開著（齒輪高亮） */
+  settingsOpen?: boolean
   /** 這一趟承接的委託與目前進度 */
   quests?: { title: string; progress: string }[]
   /** 戰鬥中選定的目標 */
@@ -165,8 +163,8 @@ function statusBar(state: RunState, ui: UiState): string {
           ${up ? '<span class="depth-bar__arrow">↑</span>' : ''}${esc(formatDepth(state.depth))}
         </span>
         <span class="depth-bar__layer">
-          第${layer.id}層　${esc(layer.name)}　·　第 ${state.daysElapsed} 日
-          ${soundToggles(ui.muted, ui.sfxMuted ?? false)}
+          <span class="depth-bar__info">第${layer.id}層 ${esc(layer.name)}<span class="dot">·</span>第 ${state.daysElapsed} 日</span>
+          ${settingsButton(ui.settingsOpen ?? false)}
         </span>
       </div>
       <div class="depth-bar__track">

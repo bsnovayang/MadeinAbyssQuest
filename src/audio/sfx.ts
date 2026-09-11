@@ -29,13 +29,13 @@ export type SfxName =
 /** 音樂實驗室試聽用的名稱 */
 export const SFX_LABELS: Readonly<Record<SfxName, string>> = {
   page: '翻頁（往前走、換分頁）',
-  pencil: '鉛筆一筆（受傷）',
-  strike: '一筆劃掉（擊倒）',
+  pencil: '鉛筆一筆（受傷、編進隊伍）',
+  strike: '一筆劃掉（擊倒、移出隊伍、放棄委託）',
   write: '寫字（鑑定）',
   buckle: '背包扣環（撿到東西）',
   thud: '放下重物（丟東西）',
   coin: '硬幣（變賣、結算）',
-  stamp: '蓋章（晉升）',
+  stamp: '蓋章（晉升、承接委託）',
   fire: '火堆（紮營）',
 }
 
@@ -60,7 +60,7 @@ export class SfxBank {
 
   constructor(private readonly ctx: AudioContext) {
     this.out = ctx.createGain()
-    this.out.gain.value = 0.55
+    this.setVolume(0.7)
     this.out.connect(ctx.destination)
 
     const length = ctx.sampleRate
@@ -69,13 +69,19 @@ export class SfxBank {
     for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1
   }
 
+  /** 玩家在設定裡調的音量，0～1 */
+  setVolume(level: number): void {
+    this.out.gain.value = 0.8 * Math.max(0, Math.min(1, level))
+  }
+
   /** strength：1 為一般，重擊之類可以給到 1.5 */
   play(name: SfxName, strength = 1): void {
     const s = Math.max(0.2, Math.min(2, strength))
     switch (name) {
+      // 最常出現的聲音，刻意壓低，聽久了才不會煩
       case 'page':
-        this.burst({ duration: 0.26, type: 'bandpass', from: jitter(1900, 0.1), to: 650, q: 0.7, gain: 0.3 * s, attack: 0.05 })
-        this.burst({ at: 0.07, duration: 0.09, type: 'highpass', from: 3200, gain: 0.08 * s })
+        this.burst({ duration: 0.26, type: 'bandpass', from: jitter(1900, 0.1), to: 650, q: 0.7, gain: 0.18 * s, attack: 0.05 })
+        this.burst({ at: 0.07, duration: 0.09, type: 'highpass', from: 3200, gain: 0.05 * s })
         break
 
       case 'pencil':

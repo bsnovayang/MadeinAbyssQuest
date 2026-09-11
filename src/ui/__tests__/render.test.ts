@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createBattle } from '../../core/battle'
 import { createMeta, type RunSummary } from '../../core/meta'
+import { settingsPanel } from '../controls'
 import { renderTown } from '../town'
 import { beginAscent, createRun, moveTo } from '../../core/run'
 import type { HpDeltas } from '../render'
@@ -12,7 +13,7 @@ const allOpen = (): PanelState => ({
   explicit: { relics: true, party: true, supply: true, quests: true, notes: true },
 })
 
-const ui = (deltas: HpDeltas = {}) => ({ deltas, muted: false, panels: allOpen() })
+const ui = (deltas: HpDeltas = {}) => ({ deltas, panels: allOpen() })
 
 describe('render', () => {
   it('起始畫面包含深度計、隊伍與抉擇', () => {
@@ -40,7 +41,7 @@ describe('render', () => {
     const s = createRun('wound')
     const riko = s.party[0]!
     riko.hp = 14
-    const html = render(s, { deltas: { [riko.id]: 8 }, muted: false })
+    const html = render(s, { deltas: { [riko.id]: 8 } })
 
     expect(html).toContain('class="wound ')
     expect(html).toContain('莉可 −8')
@@ -57,16 +58,24 @@ describe('render', () => {
     const s = createRun('wound-heal')
     const riko = s.party[0]!
     riko.hp = 10
-    const html = render(s, { deltas: { [riko.id]: -4 }, muted: false })
+    const html = render(s, { deltas: { [riko.id]: -4 } })
 
     expect(html).toContain('wound--up')
     expect(html).toContain('莉可 +4')
   })
 
-  it('狀態列有音樂與音效兩個開關，關著的會被劃掉', () => {
-    const html = render(createRun('toggles'), { ...ui(), muted: true, sfxMuted: false })
-    expect(html).toContain('data-mute="music"')
-    expect(html).toContain('data-mute="sfx"')
+  it('標題列只放一個齒輪 —— 聲音設定收在裡面，小手機才不會擠到斷行', () => {
+    const html = render(createRun('gear'), ui())
+    expect(html).toContain('data-settings')
+    expect(html).not.toContain('data-mute')
+  })
+
+  it('設定選單：音樂與音效各自的開關和音量，關著的滑桿停用', () => {
+    const html = settingsPanel({ musicMuted: true, sfxMuted: false, musicVolume: 0.3, sfxVolume: 0.9 })
+    expect(html).toContain('data-volume="music"')
+    expect(html).toContain('data-volume="sfx"')
+    expect(html).toMatch(/value="30"\s+data-volume="music"[\s\S]*?disabled/)
+    expect(html).toContain('>90</span>')
     expect(html).toMatch(/mute mute--off"\s+data-mute="music"/)
     expect(html).not.toMatch(/mute--off"\s+data-mute="sfx"/)
   })
@@ -89,7 +98,7 @@ describe('render', () => {
       buried: [],
       newAfflictions: [],
     }
-    const html = renderTown({ meta: createMeta(), selected: [], summary, muted: true, freshSummary: true })
+    const html = renderTown({ meta: createMeta(), selected: [], summary, freshSummary: true })
     expect(html).toContain('report--fresh')
     expect(html).toContain('report__line--stamp')
     expect(html).toContain('全員平安回來了')
