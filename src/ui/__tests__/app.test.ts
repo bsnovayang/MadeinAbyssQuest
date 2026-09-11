@@ -289,6 +289,16 @@ describe('戰鬥', () => {
     )
   })
 
+  it('戰鬥結束時，已經跳過的訊息不會再跳一次', async () => {
+    expect(await untilBattle()).toBe(true)
+    click('[data-flee]')
+    await flush()
+
+    const texts = [...root.querySelectorAll('.toast')].map((t) => t.textContent)
+    expect(texts).toContain('全隊退開了。深淵不是競技場。')
+    expect(new Set(texts).size).toBe(texts.length)
+  })
+
   it('撤退會結束戰鬥並回到探索', async () => {
     expect(await untilBattle()).toBe(true)
     click('[data-flee]')

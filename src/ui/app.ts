@@ -38,8 +38,10 @@ import {
   useEscapeRelic,
   useMedicine,
 } from '../core/run'
+import type { BattleState } from '../core/battle'
 import { describeProgress } from '../core/quests'
 import type { RunState, SupplyKey } from '../core/types'
+import { diffBattle, snapshotBattle, type BattleFx } from './battle'
 import { createPanelState, togglePanel, type PanelId } from './panels'
 import { decayOf, render, type HpDeltas } from './render'
 import { clearToasts, showToasts, type ToastLine } from './toast'
@@ -47,6 +49,9 @@ import type { SaveData } from './storage'
 import { renderTown, type TownTab } from './town'
 
 export type MusicScene = 'town' | 'explore' | 'battle'
+
+/** 戰鬥在最後一擊結束時，停在戰鬥畫面多久才回到探索 */
+const FINAL_BLOW_MS = 1100
 
 /** 撤離歸途沿用探索曲，但聲音變悶（企劃書 15-5b） */
 export const ASCENT_WARMTH = 0.35
@@ -148,7 +153,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
   const panels = createPanelState()
   let shownLogId = 0
   let shownBattleLines = 0
-  let battleRef: unknown = null
+  let battleRef: BattleState | null = null
 
   let meta: MetaState = createMeta()
   let run: RunState | null = null
@@ -179,7 +184,15 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     const out: ToastLine[] = []
     if (!run) return out
 
+    // 結算時整份戰鬥紀錄會抄進筆記；已經提示過的，不要在戰鬥結束時再跳一次
+    let copied = 0
     if (run.battle !== battleRef) {
+      if (battleRef && !run.battle) {
+        for (const line of battleRef.log.slice(shownBattleLines)) {
+          out.push({ text: line, tone: 'plain' })
+        }
+        copied = battleRef.log.length
+      }
       battleRef = run.battle
       shownBattleLines = 0
     }
@@ -191,14 +204,22 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     }
 
     for (const e of run.log) {
-      if (e.id > shownLogId) out.push({ text: e.text, tone: e.tone })
+      if (e.id <= shownLogId) continue
+      if (copied > 0) {
+        copied -= 1
+        continue
+      }
+      out.push({ text: e.text, tone: e.tone })
     }
     shownLogId = run.log[run.log.length - 1]?.id ?? shownLogId
 
     return out
   }
 
-  function paint(deltas: HpDeltas = {}): void {
+  function paint(
+    deltas: HpDeltas = {},
+    fx: { battleFx?: BattleFx; finalBattle?: BattleState } = {},
+  ): void {
     if (run) {
       const quests = activeQuests(meta).map((q) => ({
         title: q.title,
@@ -212,6 +233,7 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
         quests,
         target: battleTarget,
         panels,
+        ...fx,
       })
       root.classList.toggle('mood--ascent', run.direction === 'up' && !run.over)
       root.classList.toggle('mood--warm', run.endReason === 'surfaced')
@@ -261,6 +283,8 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
     const beforeLog = current.log.length
     await delay(pause * pace)
 
+    const battle = current.battle
+    const beforeBattle = battle ? snapshotBattle(battle) : null
     mutate(current)
 
     const deltas: HpDeltas = {}
@@ -269,17 +293,33 @@ export function createApp(root: HTMLElement, deps: AppDeps = {}): App {
       if (prev !== undefined && prev !== c.hp) deltas[c.id] = prev - c.hp
     }
 
-    const grim = current.log.slice(beforeLog).some((e) => e.tone === 'grim')
-    paint(deltas)
+    const battleFx = battle && beforeBattle ? diffBattle(beforeBattle, battle) : undefined
+    const finished = !!battle && !current.battle
+
+    // 戰鬥裡的死亡在倒下的那一刻表現；結算時寫下的「停下了」不再重複靜止一次
+    const grim = battle
+      ? (battleFx?.downed ?? []).some(
+          (id) => battle.combatants.find((c) => c.id === id)?.side === 'party',
+        )
+      : current.log.slice(beforeLog).some((e) => e.tone === 'grim')
+
+    // 戰鬥在這一擊結束 —— 先停在戰鬥畫面，讓玩家看見最後一擊
+    paint(finished ? {} : deltas, { battleFx, finalBattle: finished ? battle : undefined })
     showToasts(toasts, drainToasts())
-    syncAudio()
     persist()
 
     if (grim) {
       navigator.vibrate?.(30)
       audio.hush(1400)
-      await delay(1400 * pace)
     }
+
+    if (finished) {
+      await delay(FINAL_BLOW_MS * pace)
+      paint(deltas)
+    }
+    syncAudio()
+
+    if (grim) await delay(Math.max(0, 1400 - (finished ? FINAL_BLOW_MS : 0)) * pace)
 
     root.classList.remove('app--held')
     busy = false

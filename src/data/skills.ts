@@ -17,7 +17,34 @@ export interface SkillDef {
   medicine?: number
   /** 每場戰鬥可用次數。未指定 = 無限 */
   uses?: number
+  /** 用過的人在戰鬥結束後昏睡，要扶著走（見 KNOCKOUT） */
+  knockout?: boolean
+  /** 每用一次，回奧斯城要付的檢修費 */
+  repairFee?: number
 }
+
+/**
+ * 放完火葬砲的雷格會昏睡（企劃書 12-1c）。
+ *
+ * 睡著的人不參戰，還要有人扶著走。代價刻意壓在「戰力」而不是「負重」上 ——
+ * 深層的負重本來就很緊，模擬顯示任何稍重的負重代價都會讓隊伍連鎖丟東西，
+ * 打贏了還是得回去（見 core/__tests__/knockout.stats.ts）。
+ */
+export const KNOCKOUT = {
+  /** 要扶著走幾步才會醒。紮營可以提早叫醒 */
+  steps: 3,
+  /** 扶著他走增加的負重 */
+  bodyWeight: 6,
+}
+
+/**
+ * 火葬砲每發的檢修費，回奧斯城結算時扣。
+ *
+ * 固定金額而不是按收益比例：淺層收益低，放了不划算，玩家會想忍住；
+ * 深層收益高，救命時才放得下手。昏睡管的是這一趟裡的取捨，檢修費管的是整趟收益。
+ * 模擬顯示 150～400 都能讓淺層不再無腦放，且深層「開場放」仍是最好的打法。
+ */
+const INCINERATE_REPAIR_FEE = 200
 
 /**
  * 主動技能。
@@ -52,11 +79,13 @@ export const SKILLS: readonly SkillDef[] = [
   {
     id: 'incinerate',
     name: '火葬砲',
-    desc: '燒盡眼前的一切。之後雷格會有很長一段時間動不了。',
+    desc: `燒盡眼前的一切。雷格會昏睡過去：這一戰動不了，打完要扶著他走 ${KNOCKOUT.steps} 步（負重 +${KNOCKOUT.bodyWeight}kg，紮營可以叫醒）。回奧斯城要付檢修費 ${INCINERATE_REPAIR_FEE}。`,
     target: 'allEnemies',
     power: 3.4,
     recoil: 260,
     uses: 1,
+    knockout: true,
+    repairFee: INCINERATE_REPAIR_FEE,
   },
   {
     id: 'lecture',

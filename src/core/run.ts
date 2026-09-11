@@ -14,6 +14,7 @@ import { hashSeed, nextInt, pick } from './rng'
 import { runBehaviors } from './traits'
 import type {
   AbyssNode,
+  Aftermath,
   BurdenMode,
   Character,
   Item,
@@ -34,7 +35,7 @@ import { BANTER, BANTER_AFTER_LOSS } from '../data/banter'
 import { LOOT } from '../data/loot'
 import { startingParty, startingSupplies } from '../data/party'
 import { RELIC_DEFS, relicById, type RelicCost } from '../data/relics'
-import { skillById } from '../data/skills'
+import { KNOCKOUT, skillById, type SkillDef } from '../data/skills'
 
 export interface RunOptions {
   party?: Character[]
@@ -62,6 +63,7 @@ export function createRun(seed: string, options: RunOptions = {}): RunState {
     party: options.party ?? startingParty(),
     echoes: options.echoes ?? [],
     battle: null,
+    sleepers: {},
     aftermath: [],
     supplies: { ...(options.supplies ?? startingSupplies()) },
     carried: (options.carried ?? []).map((i) => ({ ...i })),
@@ -103,6 +105,7 @@ export function normalizeRun(run: RunState): RunState {
   run.choices ??= []
   run.aftermath ??= []
   run.battle ??= null
+  run.sleepers ??= {}
   run.supplies ??= startingSupplies()
   run.burden ??= { mode: 'spread', targetId: null }
   run.exhaustion ??= 0
@@ -132,8 +135,39 @@ export function hasLoss(state: RunState): boolean {
   return state.party.some((c) => c.status !== 'alive')
 }
 
+type RepairBill = Extract<Aftermath, { kind: 'repair' }>
+
+/**
+ * 這一趟累積、回奧斯城要付的檢修費（企劃書 12-1c）。
+ * 人沒有活著回去就不收，所以只算還活著的人。
+ */
+export function repairBill(state: RunState): { shots: number; total: number } {
+  const bills = state.aftermath.filter(
+    (a): a is RepairBill =>
+      a.kind === 'repair' && state.party.some((c) => c.id === a.charId && c.status === 'alive'),
+  )
+  return { shots: bills.length, total: bills.reduce((sum, a) => sum + a.amount, 0) }
+}
+
+/** 放完火葬砲昏睡中（規則見 data/skills.ts 的 KNOCKOUT） */
+export function isAsleep(state: RunState, id: string): boolean {
+  return (state.sleepers[id] ?? 0) > 0
+}
+
+/** 醒著、能戰鬥的人 */
+export function awakeMembers(state: RunState): Character[] {
+  return aliveMembers(state).filter((c) => !isAsleep(state, c.id))
+}
+
+function sleepingMembers(state: RunState): Character[] {
+  return aliveMembers(state).filter((c) => isAsleep(state, c.id))
+}
+
 export function loadOf(state: RunState): number {
-  return totalWeight(state.supplies, state.carried)
+  return (
+    totalWeight(state.supplies, state.carried) +
+    sleepingMembers(state).length * KNOCKOUT.bodyWeight
+  )
 }
 
 export function capacityOfRun(state: RunState): number {
@@ -247,6 +281,7 @@ export function moveTo(state: RunState, nodeId: string): void {
   spawnPhantom(state)
 
   spendWater(state, waterCostAt(state.depth) + extraWaterCost(enc))
+  tickSleepers(state)
 
   if (state.direction === 'up') {
     state.ascentSteps += 1
@@ -259,6 +294,19 @@ export function moveTo(state: RunState, nodeId: string): void {
   if (state.battle) return
 
   completeStep(state)
+}
+
+/** 揹著走完一步。睡夠了就醒來 */
+function tickSleepers(state: RunState): void {
+  for (const [id, steps] of Object.entries(state.sleepers)) {
+    if (steps > 1) {
+      state.sleepers[id] = steps - 1
+      continue
+    }
+    delete state.sleepers[id]
+    const member = state.party.find((c) => c.id === id)
+    if (member?.status === 'alive') push(state, `${member.name}醒過來了。`, 'warm')
+  }
 }
 
 function completeStep(state: RunState): void {
@@ -479,6 +527,13 @@ export function camp(state: RunState): void {
 
   if (state.exhaustion > 0) state.exhaustion = Math.max(0, state.exhaustion - 1)
 
+  // 紮營可以把睡著的人叫醒 —— 花一天和一份食物，換掉揹人的重量
+  for (const id of Object.keys(state.sleepers)) {
+    delete state.sleepers[id]
+    const member = state.party.find((c) => c.id === id)
+    if (member?.status === 'alive') push(state, `${member.name}被火堆的聲音吵醒了。`, 'warm')
+  }
+
   const lines = hasLoss(state) ? BANTER_AFTER_LOSS : BANTER
   const [line, s] = pick(state.rngState, lines)
   state.rngState = s
@@ -605,8 +660,14 @@ function resolveEncounter(state: RunState, node: AbyssNode): void {
   if (echoOfTheLost(state, node)) return
   if (aliveMembers(state).length === 0) return
 
+  const fighters = awakeMembers(state)
+  if (fighters.length === 0) {
+    push(state, `${node.label}。醒著的人一個也沒有。那東西嗅了嗅，走開了。`, 'cold')
+    return
+  }
+
   push(state, `${node.label}。`, 'cold')
-  state.battle = createBattle(state.rngState, aliveMembers(state), layerAt(state.depth).id)
+  state.battle = createBattle(state.rngState, fighters, layerAt(state.depth).id)
   state.rngState = state.battle.rngState
 }
 
@@ -680,6 +741,34 @@ function settleBattle(state: RunState): void {
     if (member.hp <= 0) killMember(state, member)
   }
 
+  // 放了火葬砲的人：記下回城的檢修費，撐完這一戰就昏睡過去
+  for (const unit of battle.combatants) {
+    const member = state.party.find((c) => c.id === unit.id)
+    if (unit.side !== 'party' || member?.status !== 'alive') continue
+
+    const spent = unit.skills
+      .map(skillById)
+      .filter((def): def is SkillDef => !!def?.uses && (unit.uses[def.id] ?? def.uses) < def.uses)
+
+    for (const def of spent) {
+      if (!def.repairFee) continue
+      const times = (def.uses ?? 0) - (unit.uses[def.id] ?? 0)
+      for (let i = 0; i < times; i++) {
+        state.aftermath.push({
+          kind: 'repair',
+          charId: member.id,
+          skillId: def.id,
+          amount: def.repairFee,
+        })
+      }
+    }
+
+    if (KNOCKOUT.steps > 0 && spent.some((def) => def.knockout)) {
+      state.sleepers[member.id] = KNOCKOUT.steps
+      push(state, `${member.name}倒下去睡著了。接下來 ${KNOCKOUT.steps} 步要扶著他走。`, 'cold')
+    }
+  }
+
   // 威脅是資源，不是血量（企劃書 12-2）
   for (const effect of battle.effects) {
     if (effect.kind === 'poison') {
@@ -745,6 +834,7 @@ function killMember(state: RunState, c: Character): void {
   if (c.status !== 'alive') return
   c.hp = 0
   c.status = 'dead'
+  delete state.sleepers[c.id]
   // 死亡回饋刻意克制：名字安靜地變灰（企劃書 16-1）
   push(state, `${c.name}停下了。`, 'grim')
 

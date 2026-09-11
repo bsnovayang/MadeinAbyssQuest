@@ -952,10 +952,51 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
+.vitals__bill {
+  color: var(--warm);
+}
+
 .vitals__load--over,
 .vitals__load--critical {
   color: #a33d2a;
   font-weight: 700;
+}
+
+/* 隊伍面板收著時，受傷寫在狀態列上，幾秒後淡掉 */
+.wounds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.8rem;
+  max-height: 3rem;
+  margin-top: 0.3rem;
+  overflow: hidden;
+  animation: wounds-close 500ms ease 4.6s both;
+}
+
+.wound {
+  font-size: 0.8rem;
+  color: var(--warm);
+  font-variant-numeric: tabular-nums;
+  animation: ink-write 360ms ease-out both;
+}
+
+.wound--up {
+  color: var(--accent);
+}
+
+@keyframes wounds-close {
+  to {
+    max-height: 0;
+    margin-top: 0;
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wounds,
+  .wound {
+    animation: none;
+  }
 }
 
 /* 只有「快要害死人」的事情才有資格常駐畫面 */
@@ -1372,6 +1413,279 @@ h2 {
   font-size: 0.76rem;
   color: var(--ink-faint);
   margin-top: 0.1rem;
+}
+
+/* ══ 戰鬥的手感：紙上的 juice（企劃書 16-8）══════════════════
+ *
+ * 不震動、不飄大數字。受傷是一筆修正，擊倒是一筆劃線。
+ * 這些 class 只在行動後那一次重繪出現，展開面板不會讓動畫重播。
+ */
+
+.unit {
+  position: relative;
+}
+
+/* 被打中：那一格紙面短暫染上墨色 */
+.unit--hit {
+  animation: hit-mark 900ms ease-out both;
+}
+
+.unit--enemy.unit--hit {
+  animation-name: hit-mark-enemy;
+}
+
+.unit--heavy.unit--hit {
+  animation-duration: 1.5s;
+}
+
+@keyframes hit-mark {
+  from {
+    background-color: rgba(168, 98, 42, 0.2);
+  }
+}
+
+@keyframes hit-mark-enemy {
+  from {
+    background-color: rgba(163, 61, 42, 0.18);
+  }
+}
+
+.unit__hp s {
+  color: var(--ink-faint);
+  margin-right: 0.3em;
+  text-decoration-thickness: 1px;
+}
+
+.unit__hp .changed {
+  color: var(--warm);
+  animation: ink-write 360ms ease-out both;
+}
+
+.unit__hp .changed--up {
+  color: var(--accent);
+}
+
+@keyframes ink-write {
+  from {
+    opacity: 0;
+    filter: blur(1.5px);
+  }
+}
+
+/* 重擊：筆跡特別用力，墨水暈開（企劃書 16-1） */
+.unit--heavy .unit__hp .changed {
+  font-weight: 700;
+  animation: ink-bleed 1.2s ease-out both;
+}
+
+@keyframes ink-bleed {
+  0% {
+    opacity: 0;
+    text-shadow: 0 0 0 transparent;
+  }
+  25% {
+    opacity: 1;
+    text-shadow: 0 0 8px rgba(63, 50, 38, 0.6);
+  }
+  100% {
+    text-shadow: 0 0 1px rgba(63, 50, 38, 0.35);
+  }
+}
+
+/* 血條先扣下去，淡色殘影稍後才縮回 */
+.unit__track {
+  position: relative;
+}
+
+.unit__fill {
+  position: relative;
+  z-index: 1;
+}
+
+.unit__ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: rgba(168, 98, 42, 0.45);
+  animation: ghost-drain 650ms ease-in 450ms both;
+}
+
+.unit--enemy .unit__ghost {
+  background: rgba(163, 61, 42, 0.35);
+}
+
+@keyframes ghost-drain {
+  from {
+    width: var(--from);
+  }
+  to {
+    width: var(--to);
+  }
+}
+
+.unit__fill--grow {
+  animation: fill-grow 700ms ease-out both;
+}
+
+@keyframes fill-grow {
+  from {
+    width: var(--from);
+  }
+}
+
+/* 擊倒敵人：名字被一筆劃掉，然後才淡下去 */
+.unit__name {
+  position: relative;
+}
+
+.unit--enemy.unit--felled {
+  animation:
+    hit-mark-enemy 900ms ease-out both,
+    felled-fade 500ms ease 750ms both;
+}
+
+.unit--enemy.unit--felled .unit__name {
+  text-decoration: none;
+}
+
+.unit--enemy.unit--felled .unit__name::after {
+  content: '';
+  position: absolute;
+  left: -0.15em;
+  right: -0.15em;
+  top: 55%;
+  height: 1.5px;
+  background: var(--ink);
+  transform: rotate(-2deg);
+  transform-origin: left center;
+  animation: pen-strike 380ms ease-in 150ms both;
+}
+
+@keyframes pen-strike {
+  from {
+    transform: rotate(-2deg) scaleX(0);
+  }
+}
+
+@keyframes felled-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.4;
+  }
+}
+
+/* 我方倒下：不劃掉，名字安靜地變灰（企劃書 16-1） */
+.unit--down:not(.unit--enemy) .unit__name {
+  text-decoration: none;
+  color: var(--grim);
+}
+
+.unit--felled:not(.unit--enemy) {
+  animation:
+    hit-mark 900ms ease-out both,
+    felled-fade 1.2s ease 900ms both;
+}
+
+.unit--felled:not(.unit--enemy) .unit__name {
+  animation: fade-grey 1.8s ease both;
+}
+
+@keyframes fade-grey {
+  from {
+    color: var(--ink);
+  }
+}
+
+/*
+ * 輪到誰：左側一道墨線，名字用筆記螢光筆畫過。
+ * 不另外加框 —— 外框留給「選定的目標」，兩者才不會疊在一起。
+ */
+.unit--actor::before {
+  content: '';
+  position: absolute;
+  top: 0.45rem;
+  bottom: 0.45rem;
+  left: 0.2rem;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--ink);
+  pointer-events: none;
+}
+
+.unit--actor .unit__name {
+  background-image: linear-gradient(rgba(214, 168, 72, 0.5), rgba(214, 168, 72, 0.5));
+  background-repeat: no-repeat;
+  background-position: 0 85%;
+  background-size: 100% 0.55em;
+  padding: 0 0.15em;
+  margin-left: -0.15em;
+}
+
+.unit--turn::before {
+  animation: ink-bar 300ms ease-out both;
+}
+
+.unit--turn .unit__name {
+  animation: highlighter 420ms ease-out 80ms both;
+}
+
+@keyframes ink-bar {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+@keyframes highlighter {
+  from {
+    background-size: 0% 0.55em;
+  }
+}
+
+/* 敵人蓄力：字跡開始抖，是大招的預兆 */
+.unit--charging .unit__name {
+  display: inline-block;
+  animation: tremble 0.45s steps(2, end) infinite;
+}
+
+@keyframes tremble {
+  0% {
+    transform: translate(0.6px, -0.4px) rotate(-0.4deg);
+  }
+  50% {
+    transform: translate(-0.5px, 0.5px) rotate(0.3deg);
+  }
+  100% {
+    transform: translate(0.4px, 0.2px);
+  }
+}
+
+/* 行動順序往前推一格 */
+.timeline--advanced .tl {
+  animation: tl-shift 320ms ease-out both;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+
+@keyframes tl-shift {
+  from {
+    opacity: 0.25;
+    transform: translateX(0.7rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unit,
+  .unit__name,
+  .unit__name::after,
+  .unit__hp .changed,
+  .unit__ghost,
+  .unit__fill--grow,
+  .unit--actor::before,
+  .tl {
+    animation: none !important;
+  }
 }
 
 .skills {

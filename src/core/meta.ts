@@ -23,6 +23,7 @@ import { RECRUIT_NAMES } from '../data/names'
 import { baseFee, BASES, type BaseDef } from '../data/bases'
 import { RANKS, rankAt, type RankDef } from '../data/ranks'
 import { relicById } from '../data/relics'
+import { skillById } from '../data/skills'
 import { startingParty, startingSupplies } from '../data/party'
 
 export interface MetaState {
@@ -595,9 +596,27 @@ export function concludeRun(meta: MetaState, run: RunState): RunSummary {
  */
 function settleAftermath(meta: MetaState, run: RunState, summary: RunSummary): boolean {
   let failAll = false
+  const repairs = new Map<string, { name: string; skill: string; shots: number; total: number }>()
 
   for (const effect of run.aftermath) {
     switch (effect.kind) {
+      case 'repair': {
+        // 人沒有活著回來就不收 —— 還扣錢只會加重死亡螺旋
+        const member = run.party.find((c) => c.id === effect.charId)
+        if (run.endReason !== 'surfaced' || member?.status !== 'alive') break
+        const key = `${effect.charId}:${effect.skillId}`
+        const bill = repairs.get(key) ?? {
+          name: member.name,
+          skill: skillById(effect.skillId)?.name ?? '招式',
+          shots: 0,
+          total: 0,
+        }
+        bill.shots += 1
+        bill.total += effect.amount
+        repairs.set(key, bill)
+        break
+      }
+
       case 'days':
         advanceDays(meta, effect.amount)
         summary.aftermath.push(
@@ -629,6 +648,15 @@ function settleAftermath(meta: MetaState, run: RunState, summary: RunSummary): b
         failAll = true
         break
     }
+  }
+
+  for (const bill of repairs.values()) {
+    const paid = Math.min(meta.funds, bill.total)
+    meta.funds -= paid
+    summary.aftermath.push(
+      `${bill.name}的檢修費 −${paid}（${bill.skill} ${bill.shots} 發）` +
+        (paid < bill.total ? '。錢不夠，只付得出這些。' : ''),
+    )
   }
 
   return failAll

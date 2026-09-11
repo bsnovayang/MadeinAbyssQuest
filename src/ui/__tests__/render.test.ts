@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { createBattle } from '../../core/battle'
 import { beginAscent, createRun, moveTo } from '../../core/run'
 import type { HpDeltas } from '../render'
 import { render } from '../render'
@@ -29,6 +30,63 @@ describe('render', () => {
     const html = render(s, ui({ [riko.id]: 8 }))
     expect(html).toContain('<s>22</s>')
     expect(html).toContain('>14</span>')
+    // 受傷不是回復，不能用綠色
+    expect(html).not.toContain('changed--up')
+  })
+
+  it('隊伍面板收著時，受傷寫在狀態列上', () => {
+    const s = createRun('wound')
+    const riko = s.party[0]!
+    riko.hp = 14
+    const html = render(s, { deltas: { [riko.id]: 8 }, muted: false })
+
+    expect(html).toContain('class="wound ')
+    expect(html).toContain('莉可 −8')
+  })
+
+  it('隊伍面板展開時不重複寫在狀態列', () => {
+    const s = createRun('wound-open')
+    const riko = s.party[0]!
+    riko.hp = 14
+    expect(render(s, ui({ [riko.id]: 8 }))).not.toContain('class="wound')
+  })
+
+  it('回復在狀態列上寫成加號', () => {
+    const s = createRun('wound-heal')
+    const riko = s.party[0]!
+    riko.hp = 10
+    const html = render(s, { deltas: { [riko.id]: -4 }, muted: false })
+
+    expect(html).toContain('wound--up')
+    expect(html).toContain('莉可 +4')
+  })
+
+  it('放過火葬砲後，狀態列一直看得到回城的檢修費', () => {
+    const s = createRun('bill')
+    expect(render(s, ui())).not.toContain('回城檢修')
+
+    s.aftermath.push({ kind: 'repair', charId: 'reg', skillId: 'incinerate', amount: 200 })
+    s.aftermath.push({ kind: 'repair', charId: 'reg', skillId: 'incinerate', amount: 200 })
+    expect(render(s, ui())).toContain('火葬砲 2 發・回城檢修 400')
+  })
+
+  it('回到地表的畫面提醒要付的檢修費', () => {
+    const s = createRun('bill-end')
+    s.over = true
+    s.endReason = 'surfaced'
+    s.aftermath.push({ kind: 'repair', charId: 'reg', skillId: 'incinerate', amount: 200 })
+    expect(render(s, ui())).toContain('回城要付檢修費 200')
+  })
+
+  it('戰鬥在最後一擊結束時，可以先停在戰鬥畫面', () => {
+    const s = createRun('final-blow')
+    const battle = createBattle(1, s.party, 1)
+    battle.over = 'win'
+    battle.awaiting = null
+
+    const html = render(s, { ...ui(), finalBattle: battle })
+    expect(html).toContain('timeline')
+    expect(html).toContain('周圍安靜下來了')
   })
 
   it('死亡的隊員被劃掉', () => {

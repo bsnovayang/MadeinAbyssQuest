@@ -1,3 +1,4 @@
+import type { BattleState } from '../core/battle'
 import { distributeBurden, forecast, hasWardRelic, tierFor } from '../core/curse'
 import { formatDepth, layerAt } from '../core/depth'
 import { decayStage, distort, reliabilityAt } from '../core/perception'
@@ -7,6 +8,8 @@ import {
   canMove,
   canUseAnchor,
   encumbranceOfRun,
+  isAsleep,
+  repairBill,
   usableRelics,
   capacityOfRun,
   loadOf,
@@ -15,7 +18,7 @@ import {
 import { runBehaviors } from '../core/traits'
 import type { NodeKind, RunState, Supplies } from '../core/types'
 import { relicById } from '../data/relics'
-import { renderBattle } from './battle'
+import { renderBattle, type BattleFx } from './battle'
 import {
   createPanelState,
   isPanelOpen,
@@ -33,6 +36,10 @@ export interface UiState {
   /** 戰鬥中選定的目標 */
   target?: string | null
   panels?: PanelState
+  /** 這次戰鬥行動造成的變化，只在行動後那一次重繪帶入 */
+  battleFx?: BattleFx
+  /** 戰鬥在最後一擊結束時，先停在這個畫面讓玩家看見發生了什麼 */
+  finalBattle?: BattleState
 }
 
 const KIND_LABEL: Readonly<Record<NodeKind, string>> = {
@@ -75,6 +82,13 @@ function alerts(state: RunState): string[] {
 
   if (state.exhaustion > 0) out.push(`力竭 ${state.exhaustion}`)
 
+  // 負重突然變重，玩家要知道是為什麼
+  for (const c of state.party) {
+    if (c.status === 'alive' && isAsleep(state, c.id)) {
+      out.push(`${c.name}昏睡中・還要扶著走 ${state.sleepers[c.id]} 步`)
+    }
+  }
+
   if (state.direction === 'up') {
     const fc = forecast(state)
     for (const c of state.party) {
@@ -95,6 +109,34 @@ function alerts(state: RunState): string[] {
   return out
 }
 
+/**
+ * 隊伍面板收著的時候，受傷就寫在狀態列上，幾秒後淡掉。
+ * 否則劃掉改寫的血量藏在收起來的面板裡，玩家根本不知道誰受了傷。
+ * 死亡不在這裡寫 —— 那由筆記與靜止來表達（企劃書 16-2）。
+ */
+function wounds(state: RunState, ui: UiState): string {
+  if (isPanelOpen(ui.panels ?? createPanelState(), 'party', state.direction === 'up')) return ''
+  const trust = reliabilityAt(state.depth)
+
+  const marks = state.party.flatMap((c) => {
+    const delta = ui.deltas[c.id] ?? 0
+    if (delta === 0 || c.status !== 'alive') return []
+
+    // 深層的數字會說謊，差值也要跟著顯示出來的血量走
+    const before = c.hp + delta
+    const shown =
+      distort(before, trust, `${c.id}:${before}:${state.depth}`) -
+      distort(c.hp, trust, `${c.id}:${c.hp}:${state.depth}`)
+    if (shown === 0) return []
+
+    return [
+      `<span class="wound ${shown < 0 ? 'wound--up' : ''}">${esc(c.name)} ${shown > 0 ? '−' : '+'}${Math.abs(shown)}</span>`,
+    ]
+  })
+
+  return marks.length ? `<div class="wounds">${marks.join('')}</div>` : ''
+}
+
 function statusBar(state: RunState, ui: UiState): string {
   const layer = layerAt(state.depth)
   const span = layer.to === Infinity ? layer.step * 10 : layer.to - layer.from
@@ -110,6 +152,7 @@ function statusBar(state: RunState, ui: UiState): string {
   const enc = encumbranceOfRun(state)
 
   const warnings = alerts(state)
+  const bill = repairBill(state)
 
   return `
     <div class="depth-bar">
@@ -129,7 +172,14 @@ function statusBar(state: RunState, ui: UiState): string {
         <span>${alive.length} 人　${hp}/${maxHp}</span>
         <span>水 ${state.supplies.water}　食 ${state.supplies.food}　繩 ${state.supplies.rope}　藥 ${state.supplies.medicine}</span>
         <span class="vitals__load vitals__load--${enc}">${load.toFixed(0)}/${cap}kg</span>
+        ${
+          // 放之前就該知道代價；放了之後，累積的帳也要一直看得到
+          bill.shots > 0
+            ? `<span class="vitals__bill">火葬砲 ${bill.shots} 發・回城檢修 ${bill.total}</span>`
+            : ''
+        }
       </div>
+      ${wounds(state, ui)}
       ${
         up
           ? `<div class="depth-bar__curse">歸途　${esc(tierFor(state.depth).name)}</div>`
@@ -169,7 +219,7 @@ function partyBody(state: RunState, ui: UiState): string {
 
       const hpText =
         delta !== 0 && !gone
-          ? `<s>${c.hp + delta}</s><span class="changed ${delta > 0 ? 'changed--up' : ''}">${shownHp}</span> / ${c.maxHp}`
+          ? `<s>${c.hp + delta}</s><span class="changed ${delta < 0 ? 'changed--up' : ''}">${shownHp}</span> / ${c.maxHp}`
           : `${shownHp} / ${c.maxHp}`
 
       const statusNote =
@@ -177,7 +227,9 @@ function partyBody(state: RunState, ui: UiState): string {
           ? '<span class="member__note member__note--grim">留在深淵</span>'
           : c.status === 'dead'
             ? ''
-            : c.immuneToCurse
+            : isAsleep(state, c.id)
+              ? `<span class="member__note">昏睡中・還要扶著走 ${state.sleepers[c.id]} 步，紮營可以叫醒</span>`
+              : c.immuneToCurse
               ? '<span class="member__note">機械之軀・不受負荷影響</span>'
               : ''
 
@@ -340,6 +392,7 @@ function ended(state: RunState): string {
   const survived = state.party.filter((c) => c.status === 'alive')
   const lost = state.party.filter((c) => c.status !== 'alive')
   const surfaced = state.endReason === 'surfaced'
+  const bill = repairBill(state)
 
   const body = surfaced
     ? `
@@ -348,6 +401,7 @@ function ended(state: RunState): string {
         帶回地表的東西值 ${totalValue(state)}。
       </p>
       <p class="ended__body">回來的人：${survived.map((c) => esc(c.name)).join('、') || '沒有'}。</p>
+      ${bill.total > 0 ? `<p class="ended__body">火葬砲放了 ${bill.shots} 發，回城要付檢修費 ${bill.total}。</p>` : ''}
       ${lost.length ? `<p class="ended__body ended__body--grim">沒有回來：${lost.map((c) => esc(c.name)).join('、')}。</p>` : ''}`
     : `
       <p class="ended__body">
@@ -463,16 +517,17 @@ export function decayOf(state: RunState): number {
 export function render(state: RunState, ui: UiState): string {
   const panels = ui.panels ?? createPanelState()
 
-  if (state.over) {
-    return `${statusBar(state, ui)}<div class="town-page">${ended(state)}</div>`
-  }
-
-  if (state.battle) {
+  const battle = ui.finalBattle ?? state.battle
+  if (battle) {
     return `
       ${statusBar(state, ui)}
       <div class="town-page">
-        ${renderBattle(state.battle, ui.target ?? null, state.supplies.medicine)}
+        ${renderBattle(battle, ui.target ?? null, state.supplies.medicine, ui.battleFx)}
       </div>`
+  }
+
+  if (state.over) {
+    return `${statusBar(state, ui)}<div class="town-page">${ended(state)}</div>`
   }
 
   const up = state.direction === 'up'

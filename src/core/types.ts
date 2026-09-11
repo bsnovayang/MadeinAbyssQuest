@@ -35,6 +35,8 @@ export type Aftermath =
   | { kind: 'days'; amount: number }
   | { kind: 'fundsRatio'; ratio: number }
   | { kind: 'questsFail' }
+  /** 放過火葬砲的檢修費。人活著回到奧斯城才收（企劃書 12-1c） */
+  | { kind: 'repair'; charId: string; skillId: string; amount: number }
 
 /** 被留在深淵的人。M5 會讓他們以成之末端的身分回來 */
 export interface LostSoul {
@@ -132,6 +134,8 @@ export interface RunState {
   echoes: LostSoul[]
   /** 進行中的戰鬥。不為 null 時，探索的一切都要等它結束 */
   battle: BattleState | null
+  /** 昏睡中的隊員，以及還要揹著他走幾步（放完火葬砲的雷格） */
+  sleepers: Record<string, number>
   /** 回到城裡才會結算的後果 */
   aftermath: Aftermath[]
   current: AbyssNode
